@@ -3,10 +3,10 @@ const DEBOUNCE_MS = 900; // wait for a pause before checking, so nearby phrases 
 const MIN_WORDS = 4; // don't spend a request on a fragment; it rides along with the next phrase
 const MAX_BATCH = 20;
 
-const CATEGORY_LABELS = {
+const KIND_LABELS = {
   fallacy: "Fallacy",
-  pressure_tactic: "Pressure tactic",
-  statistical_red_flag: "Statistics red flag",
+  pressure_tactic: "Pressure",
+  statistical_red_flag: "Statistics",
 };
 
 const EXAMPLE = [
@@ -19,36 +19,47 @@ const EXAMPLE = [
 
 const els = {
   listen: document.getElementById("listen"),
+  listenLabel: document.getElementById("listen-label"),
   clear: document.getElementById("clear"),
   status: document.getElementById("status"),
   error: document.getElementById("error"),
   transcript: document.getElementById("transcript"),
-  transcriptEmpty: document.getElementById("transcript-empty"),
-  flags: document.getElementById("flags"),
-  flagsEmpty: document.getElementById("flags-empty"),
-  flagCount: document.getElementById("flag-count"),
+  empty: document.getElementById("empty"),
   form: document.getElementById("type-form"),
   input: document.getElementById("type-input"),
   example: document.getElementById("example"),
 };
 
 const state = {
-  segments: [], // { id, text, checked }
+  segments: [], // { id, text, at, checked }
   flags: [], // { id, segment_id, quote, category, name, explanation, suggested_response, confidence }
   interim: "",
   nextId: 1,
   inFlight: false,
   timer: null,
   listening: false,
+  startedAt: null, // when the session's clock started
+  listenSince: null, // when the current listening stretch started
+  shownFlags: new Set(), // flags already drawn once, so only new notes animate in
 };
+
+function clock(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function elapsed() {
+  state.startedAt ??= Date.now();
+  return Date.now() - state.startedAt;
+}
 
 // ---------- Analysis queue ----------
 
 function addSegment(text) {
   const clean = text.trim().replace(/\s+/g, " ");
   if (!clean) return;
-  state.segments.push({ id: `s${state.nextId++}`, text: clean, checked: false });
-  renderTranscript();
+  state.segments.push({ id: `s${state.nextId++}`, text: clean, at: elapsed(), checked: false });
+  render();
   scheduleAnalysis();
 }
 
@@ -77,6 +88,7 @@ async function runAnalysis(force) {
   const toWire = (s) => ({ id: s.id, text: s.text });
 
   state.inFlight = true;
+  render(); // show "checking…" beside the lines being sent
   let failed = false;
   try {
     const res = await fetch("/api/analyze", {
@@ -110,129 +122,89 @@ function showError(message) {
   els.error.textContent = message ?? "";
 }
 
-function render() {
-  renderTranscript();
-  renderFlags();
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
-// Split a segment's text into plain and flagged pieces.
+// Find where each of a segment's flags sits in its text.
 function markRanges(segment) {
   const lower = segment.text.toLowerCase();
   const ranges = [];
   for (const flag of state.flags) {
     if (flag.segment_id !== segment.id) continue;
-    let start = lower.indexOf(flag.quote.trim().toLowerCase());
-    let end = start + flag.quote.trim().length;
+    const quote = flag.quote.trim().toLowerCase();
+    let start = lower.indexOf(quote);
+    let end = start + quote.length;
     if (start === -1 || end === start) {
-      // The model's quote didn't match the text exactly: mark the whole segment.
+      // The model's quote didn't match the text exactly: mark the whole line.
       start = 0;
       end = segment.text.length;
     }
-    if (ranges.every((r) => end <= r.start || start >= r.end)) ranges.push({ start, end, flag });
+    const overlaps = ranges.some((r) => start < r.end && end > r.start);
+    ranges.push({ start, end, flag, overlaps });
   }
   return ranges.sort((a, b) => a.start - b.start);
 }
 
-function renderTranscript() {
-  const nearBottom =
-    els.transcript.scrollHeight - els.transcript.scrollTop - els.transcript.clientHeight < 60;
-  const nodes = [];
-
-  for (const segment of state.segments) {
-    const span = document.createElement("span");
-    span.className = segment.checked ? "seg" : "seg pending";
-    let cursor = 0;
-    for (const { start, end, flag } of markRanges(segment)) {
-      span.append(segment.text.slice(cursor, start));
-      const mark = document.createElement("mark");
-      mark.className = flag.category;
-      mark.textContent = segment.text.slice(start, end);
-      mark.title = flag.name;
-      mark.tabIndex = 0;
-      mark.setAttribute("role", "button");
-      mark.dataset.flag = flag.id;
-      span.append(mark);
-      cursor = end;
-    }
-    span.append(segment.text.slice(cursor) + " ");
-    nodes.push(span);
+function renderNote(flag) {
+  const note = el("article", `note ${flag.category}`);
+  if (!state.shownFlags.has(flag.id)) {
+    note.classList.add("new");
+    state.shownFlags.add(flag.id);
   }
+  const kind = KIND_LABELS[flag.category] ?? flag.category;
+  note.append(
+    el("p", "kind", flag.confidence === "medium" ? `${kind} · depends on context` : kind),
+    el("h3", "", flag.name),
+    el("p", "why", flag.explanation),
+  );
+  const say = el("p", "say");
+  say.append(el("span", "", "Say"), flag.suggested_response);
+  note.append(say);
+  return note;
+}
 
+function renderLine(segment) {
+  const row = el("li", segment.checked ? "row" : "row pending");
+  const said = el("p", "said");
+  const notes = el("div", "notes");
+
+  let cursor = 0;
+  for (const { start, end, flag, overlaps } of markRanges(segment)) {
+    notes.append(renderNote(flag));
+    if (overlaps) continue; // the note still shows; the text is already marked there
+    said.append(segment.text.slice(cursor, start));
+    const mark = el("mark", flag.category, segment.text.slice(start, end));
+    mark.title = flag.name;
+    said.append(mark);
+    cursor = end;
+  }
+  said.append(segment.text.slice(cursor));
+  if (!segment.checked) notes.append(el("p", "checking", state.inFlight ? "checking…" : "waiting"));
+
+  row.append(el("span", "t", clock(segment.at)), said, notes);
+  return row;
+}
+
+function render() {
+  const page = document.documentElement;
+  const nearBottom = page.scrollHeight - window.scrollY - window.innerHeight < 120;
+
+  const rows = state.segments.map(renderLine);
   if (state.interim) {
-    const interim = document.createElement("span");
-    interim.className = "interim";
-    interim.textContent = state.interim;
-    nodes.push(interim);
+    const row = el("li", "row interim");
+    row.append(el("span", "t", clock(elapsed())), el("p", "said", state.interim), el("div", "notes"));
+    rows.push(row);
   }
+  els.transcript.replaceChildren(...rows);
+  els.empty.hidden = rows.length > 0;
 
-  els.transcriptEmpty.hidden = nodes.length > 0;
-  els.transcript.replaceChildren(els.transcriptEmpty, ...nodes);
-  if (nearBottom) els.transcript.scrollTop = els.transcript.scrollHeight;
+  // Follow the conversation unless the reader has scrolled back up.
+  if (nearBottom && rows.length) window.scrollTo({ top: page.scrollHeight });
 }
-
-function renderFlags() {
-  els.flagsEmpty.hidden = state.flags.length > 0;
-  els.flagCount.textContent = state.flags.length ? `(${state.flags.length})` : "";
-
-  // Newest first, so the latest flag is where the eye lands mid-conversation.
-  const items = [...state.flags].reverse().map((flag) => {
-    const li = document.createElement("li");
-    li.className = `flag ${flag.category}`;
-    li.id = `flag-${flag.id}`;
-
-    const head = document.createElement("div");
-    head.className = "flag-head";
-    const name = document.createElement("span");
-    name.className = "flag-name";
-    name.textContent = flag.name;
-    const category = document.createElement("span");
-    category.className = "tag";
-    category.textContent = CATEGORY_LABELS[flag.category] ?? flag.category;
-    head.append(name, category);
-    if (flag.confidence === "medium") {
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = "Depends on context";
-      head.append(tag);
-    }
-
-    const quote = document.createElement("blockquote");
-    quote.textContent = flag.quote;
-
-    const why = document.createElement("p");
-    why.textContent = flag.explanation;
-
-    const reply = document.createElement("p");
-    reply.className = "reply";
-    const label = document.createElement("span");
-    label.textContent = "You could say: ";
-    reply.append(label, flag.suggested_response);
-
-    li.append(head, quote, why, reply);
-    return li;
-  });
-  els.flags.replaceChildren(...items);
-}
-
-function focusFlag(id) {
-  const card = document.getElementById(`flag-${id}`);
-  if (!card) return;
-  for (const el of els.flags.querySelectorAll(".focus")) el.classList.remove("focus");
-  card.classList.add("focus");
-  card.scrollIntoView({ block: "nearest", behavior: "smooth" });
-}
-
-els.transcript.addEventListener("click", (event) => {
-  const mark = event.target.closest("mark");
-  if (mark) focusFlag(mark.dataset.flag);
-});
-els.transcript.addEventListener("keydown", (event) => {
-  const mark = event.target.closest("mark");
-  if (mark && (event.key === "Enter" || event.key === " ")) {
-    event.preventDefault();
-    focusFlag(mark.dataset.flag);
-  }
-});
 
 // ---------- Typed input ----------
 
@@ -260,6 +232,8 @@ els.clear.addEventListener("click", () => {
   state.segments = [];
   state.flags = [];
   state.interim = "";
+  state.startedAt = state.listening ? Date.now() : null;
+  state.shownFlags.clear();
   showError(null);
   render();
 });
@@ -269,21 +243,30 @@ els.clear.addEventListener("click", () => {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 
+let ticker = null;
+
 function setListening(on, statusText) {
   state.listening = on;
-  els.listen.textContent = on ? "Stop listening" : "Start listening";
+  els.listenLabel.textContent = on ? "Stop" : "Listen";
   els.listen.classList.toggle("live", on);
   els.status.classList.toggle("live", on);
-  els.status.textContent = statusText ?? (on ? "Listening" : "Not listening");
-  if (!on) {
+  clearInterval(ticker);
+  if (on) {
+    elapsed(); // start the session clock if this is the first activity
+    state.listenSince = Date.now();
+    const tick = () => (els.status.textContent = `Listening ${clock(Date.now() - state.listenSince)}`);
+    tick();
+    ticker = setInterval(tick, 1000);
+  } else {
+    els.status.textContent = statusText ?? "Not listening";
     state.interim = "";
-    renderTranscript();
+    render();
   }
 }
 
 if (!SpeechRecognition) {
   els.listen.disabled = true;
-  els.status.textContent = "Live listening needs Chrome, Edge or Safari. You can still type below.";
+  els.status.textContent = "Listening needs Chrome, Edge or Safari. You can still type below.";
 } else {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
@@ -298,7 +281,7 @@ if (!SpeechRecognition) {
       else interim += result[0].transcript;
     }
     state.interim = interim;
-    renderTranscript();
+    render();
   };
 
   recognition.onerror = (event) => {

@@ -4,59 +4,60 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fallacy Detector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="bar">
-    <div class="bar-inner">
+    <div class="wrap bar-inner">
       <h1>Fallacy Detector</h1>
+      <p id="status" class="status" role="status">Not listening</p>
       <div class="controls">
-        <span id="status" class="status" role="status">Not listening</span>
-        <button id="listen" class="primary" type="button">Start listening</button>
-        <button id="clear" type="button">Clear</button>
+        <button id="listen" class="rec" type="button"><span class="rec-icon" aria-hidden="true"></span><span id="listen-label">Listen</span></button>
+        <button id="clear" class="plain" type="button">Clear</button>
       </div>
     </div>
   </header>
 
-  <main>
+  <main class="wrap">
     <p id="error" class="error" role="alert" hidden></p>
 
-    <section class="panel" aria-labelledby="transcript-title">
-      <h2 id="transcript-title">Transcript</h2>
-      <div id="transcript" class="transcript" aria-live="off">
-        <p id="transcript-empty" class="empty">
-          Press <strong>Start listening</strong> and talk, or type a sentence below.
-          Flagged phrases are highlighted here as the conversation goes on.
-        </p>
+    <div class="sheet">
+      <div class="row heads" aria-hidden="true">
+        <span>Time</span>
+        <span>Said</span>
+        <span class="key">
+          <span>Notes</span>
+          <mark class="fallacy">fallacy</mark>
+          <mark class="pressure_tactic">pressure</mark>
+          <mark class="statistical_red_flag">statistics</mark>
+        </span>
       </div>
-      <form id="type-form" class="type-form">
-        <label for="type-input">Type or paste what was said</label>
-        <div class="type-row">
-          <input id="type-input" type="text" autocomplete="off"
-                 placeholder="e.g. You either buy today or you lose the deal forever">
-          <button type="submit">Check</button>
-        </div>
-        <button id="example" class="link" type="button">Try an example conversation</button>
-      </form>
-    </section>
 
-    <section class="panel" aria-labelledby="flags-title">
-      <h2 id="flags-title">Flags <span id="flag-count" class="count"></span></h2>
-      <ul class="legend" aria-label="Flag types">
-        <li><span class="dot fallacy"></span>Fallacy</li>
-        <li><span class="dot pressure_tactic"></span>Pressure tactic</li>
-        <li><span class="dot statistical_red_flag"></span>Statistics red flag</li>
-      </ul>
-      <ol id="flags" class="flags" aria-live="polite"></ol>
-      <p id="flags-empty" class="empty">
-        Nothing flagged yet. Most of what people say is fine, so this list stays empty until something stands out.
-      </p>
-    </section>
+      <ol id="transcript" class="lines" aria-label="Transcript with notes"></ol>
+
+      <div id="empty" class="row empty">
+        <span class="t">00:00</span>
+        <p class="said">Nothing said yet. Press Listen and talk, or type a line below.</p>
+        <div class="notes">
+          <p>Notes appear here, beside the line they refer to. Most lines get none.</p>
+          <button id="example" class="plain" type="button">Run a sample conversation</button>
+        </div>
+      </div>
+
+      <form id="type-form" class="row composer">
+        <label class="t" for="type-input">Type</label>
+        <input id="type-input" type="text" autocomplete="off" placeholder="What was said, then Enter">
+        <span></span>
+      </form>
+    </div>
   </main>
 
-  <footer>
-    Live listening uses your browser's speech recognition, which may send audio to the browser vendor.
-    The transcript text is sent to Anthropic for analysis. Tell people before you record them.
+  <footer class="wrap">
+    Listening uses your browser's speech recognition, which may send audio to the browser vendor.
+    The transcript text is sent to Anthropic. Tell people before you record them.
   </footer>
 
   <script src="app.js" type="module"></script>
