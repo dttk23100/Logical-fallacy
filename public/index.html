@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fallacy Detector</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="bar-inner">
+      <h1>Fallacy Detector</h1>
+      <div class="controls">
+        <span id="status" class="status" role="status">Not listening</span>
+        <button id="listen" class="primary" type="button">Start listening</button>
+        <button id="clear" type="button">Clear</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <section class="panel" aria-labelledby="transcript-title">
+      <h2 id="transcript-title">Transcript</h2>
+      <div id="transcript" class="transcript" aria-live="off">
+        <p id="transcript-empty" class="empty">
+          Press <strong>Start listening</strong> and talk, or type a sentence below.
+          Flagged phrases are highlighted here as the conversation goes on.
+        </p>
+      </div>
+      <form id="type-form" class="type-form">
+        <label for="type-input">Type or paste what was said</label>
+        <div class="type-row">
+          <input id="type-input" type="text" autocomplete="off"
+                 placeholder="e.g. You either buy today or you lose the deal forever">
+          <button type="submit">Check</button>
+        </div>
+        <button id="example" class="link" type="button">Try an example conversation</button>
+      </form>
+    </section>
+
+    <section class="panel" aria-labelledby="flags-title">
+      <h2 id="flags-title">Flags <span id="flag-count" class="count"></span></h2>
+      <ul class="legend" aria-label="Flag types">
+        <li><span class="dot fallacy"></span>Fallacy</li>
+        <li><span class="dot pressure_tactic"></span>Pressure tactic</li>
+        <li><span class="dot statistical_red_flag"></span>Statistics red flag</li>
+      </ul>
+      <ol id="flags" class="flags" aria-live="polite"></ol>
+      <p id="flags-empty" class="empty">
+        Nothing flagged yet. Most of what people say is fine, so this list stays empty until something stands out.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    Live listening uses your browser's speech recognition, which may send audio to the browser vendor.
+    The transcript text is sent to Anthropic for analysis. Tell people before you record them.
+  </footer>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

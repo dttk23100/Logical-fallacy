@@ -1,0 +1,15 @@
+{
+  "name": "logical-fallacy-detector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Flags logical fallacies, pressure tactics and statistical red flags in live conversation.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.9.0",
+    "zod": "^4.6.7"
+  }
+}
