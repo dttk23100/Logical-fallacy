@@ -40,7 +40,15 @@ Other browsers have no speech recognition, but you can still type or paste text.
 | `server.js` | Local server: serves the page and the `/api/analyze` endpoint |
 | `api/analyze.js` | The same endpoint as a Vercel function |
 | `analyzer.js` | Prompt, output schema and the Claude call |
+| `transcriber.js`, `api/transcribe.js` | Whisper transcription through Groq, used when a key is set |
 | `public/` | The page: speech capture, request queue, rendering |
+
+## Better speech recognition (optional)
+
+By default the page uses the browser's built-in speech recognition, which is free but drops words.
+Set `GROQ_API_KEY` (a free key from console.groq.com) and it switches to Whisper: the microphone is
+recorded without a break, cut into clips at pauses, and each clip is transcribed by `whisper-large-v3-turbo`.
+Without the key nothing changes.
 
 ## Deploy to Vercel
 

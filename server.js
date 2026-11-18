@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { respond } from "./analyzer.js";
+import { transcribe, whisperAvailable } from "./transcriber.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "public");
 const port = Number(process.env.PORT) || 3000;
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -21,20 +23,20 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         reject(Object.assign(new Error("Request body too large"), { status: 413 }));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -42,12 +44,24 @@ function readBody(req) {
 async function handleAnalyze(req, res) {
   let payload;
   try {
-    payload = JSON.parse(await readBody(req));
+    payload = JSON.parse((await readBody(req)).toString("utf8"));
   } catch (error) {
     sendJson(res, error.status ?? 400, { error: "Invalid request body" });
     return;
   }
   const { status, body } = await respond(payload);
+  sendJson(res, status, body);
+}
+
+async function handleTranscribe(req, res, url) {
+  let audio;
+  try {
+    audio = await readBody(req, MAX_AUDIO_BYTES);
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: "Couldn't read the audio" });
+    return;
+  }
+  const { status, body } = await transcribe(audio, url.searchParams.get("type"), url.searchParams.get("prompt"));
   sendJson(res, status, body);
 }
 
@@ -71,8 +85,13 @@ async function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.method === "POST" && req.url === "/api/analyze") {
+  const url = new URL(req.url, "http://localhost");
+  if (req.method === "POST" && url.pathname === "/api/analyze") {
     handleAnalyze(req, res);
+  } else if (req.method === "POST" && url.pathname === "/api/transcribe") {
+    handleTranscribe(req, res, url);
+  } else if (req.method === "GET" && url.pathname === "/api/transcribe") {
+    sendJson(res, 200, { available: whisperAvailable() });
   } else if (req.method === "GET") {
     serveStatic(req, res);
   } else {

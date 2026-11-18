@@ -23,6 +23,7 @@ const HISTORY_LIMIT = 30; // oldest saved conversations are dropped beyond this
 
 import { DICTIONARY } from "./dictionary.js";
 import { SAMPLE } from "./sample.js";
+import { createWhisperEngine, whisperSupported } from "./whisper.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -524,12 +525,8 @@ els.historyList.addEventListener("click", (event) => {
 });
 
 els.end.addEventListener("click", () => {
-  if (state.listening) {
-    setListening(false);
-    recognition.stop(); // onend takes the last words and checks them
-  } else {
-    runNow();
-  }
+  if (state.listening) stopListening(); // the engine hands over its last words, then they are checked
+  else runNow();
   state.finished = true;
   saveCurrent();
   show("summary");
@@ -575,9 +572,46 @@ els.fresh.addEventListener("click", () => {
 
 // ---------- Live speech ----------
 
+// Two ways of turning speech into text. Whisper is used when the server has it set up;
+// otherwise the browser's own recogniser, which is free everywhere but drops more words.
+// Each engine has start() and stop().
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
+let browserEngine = null;
+let whisperEngine = null;
+let active = null; // the engine listening right now
 let ticker = null;
+let wakeLock = null;
+
+async function startListening() {
+  const engine = whisperEngine ?? browserEngine;
+  if (!engine || state.listening) return;
+  try {
+    await engine.start();
+    active = engine;
+    setListening(true);
+  } catch (error) {
+    setListening(false, error?.userMessage ?? "Couldn't start listening. Try again");
+  }
+}
+
+function stopListening() {
+  setListening(false);
+  active?.stop();
+  active = null;
+}
+
+els.mic.addEventListener("click", () => (state.listening ? stopListening() : startListening()));
+
+// Keep the phone's screen awake while listening; a sleeping screen stops the microphone.
+async function holdScreen(on) {
+  try {
+    if (on) wakeLock = await navigator.wakeLock?.request("screen");
+    else await wakeLock?.release();
+  } catch {
+    // Not supported or refused: listening still works while the screen stays on.
+  }
+}
 
 // Words from the current recognition session. heard[i] is the latest wording of the i-th
 // phrase; taken[i] counts how many of its words are already in the transcript.
@@ -620,6 +654,7 @@ function setListening(on, statusText) {
   els.mic.classList.toggle("live", on);
   els.mic.setAttribute("aria-label", on ? "Stop listening" : "Start listening");
   clearInterval(ticker);
+  holdScreen(on);
   if (on) {
     elapsed(); // start the conversation clock if this is the first activity
     state.listenSince = Date.now();
@@ -697,20 +732,33 @@ if (!SpeechRecognition) {
     }
   };
 
-  els.mic.addEventListener("click", () => {
-    if (state.listening) {
-      setListening(false);
+  browserEngine = {
+    start() {
+      newSession();
+      recognition.start();
+    },
+    stop() {
       recognition.stop();
-    } else {
-      try {
-        newSession();
-        recognition.start();
-        setListening(true);
-      } catch {
-        setListening(false, "Couldn't start listening. Try again");
-      }
-    }
-  });
+    },
+  };
+}
+
+// Ask the server whether Whisper is set up, and prefer it when it is.
+if (whisperSupported()) {
+  fetch("/api/transcribe")
+    .then((response) => response.json())
+    .then(({ available }) => {
+      if (!available) return;
+      whisperEngine = createWhisperEngine({
+        getPrompt: () => state.segments.map((s) => s.text).join(" ").slice(-200),
+        onText: addSegment,
+        onError: showError,
+        onDrained: runNow,
+      });
+      els.mic.disabled = false;
+      if (!state.listening) els.status.textContent = "Tap to listen";
+    })
+    .catch(() => {}); // no answer: stay with the browser's recogniser
 }
 
 render();
