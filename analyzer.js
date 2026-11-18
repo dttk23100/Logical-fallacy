@@ -4,9 +4,15 @@ import { z } from "zod";
 
 const MODEL = process.env.FALLACY_MODEL || "claude-opus-5-5";
 
+const SPEAKERS = ["A", "B", "C", "D", "E", "F"];
+
 const Segment = z.object({
   id: z.string().min(1).max(40),
   text: z.string().min(1).max(2000),
+  // Who said it, if already worked out. Only used on context segments.
+  speaker: z.enum(SPEAKERS).optional(),
+  // True when the listener set the speaker by hand.
+  confirmed: z.boolean().optional(),
 });
 
 export const AnalyzeInput = z.object({
@@ -26,9 +32,27 @@ const Flag = z.object({
   confidence: z.enum(["high", "medium"]),
 });
 
-const AnalyzeOutput = z.object({ flags: z.array(Flag) });
+const SpeakerGuess = z.object({ segment_id: z.string(), speaker: z.enum(SPEAKERS) });
 
-const SYSTEM_PROMPT = `You monitor a live spoken conversation for a listener who wants to avoid being misled or pressured. The text you receive is an automatic speech transcript: it has no speaker labels, little punctuation, and may contain mis-heard words. It arrives in small segments as people talk.
+const AnalyzeOutput = z.object({ speakers: z.array(SpeakerGuess), flags: z.array(Flag) });
+
+const SYSTEM_PROMPT = `You monitor a live spoken conversation for a listener who wants to avoid being misled or pressured. The text you receive is an automatic speech transcript: it has little punctuation, may contain mis-heard words, and does not record who is speaking. It arrives in small segments as people talk; a new segment starts at each pause.
+
+You have two jobs: work out who is speaking in each NEW segment, and flag broken reasoning in the NEW segments.
+
+## Who is speaking
+
+Two or more people are usually talking. Label each new segment with the person most likely saying it, using the letters A, B, C and so on in order of first appearance. Earlier segments show the letter already given to them; keep those identities consistent.
+
+You only have the words, so read them the way you would read a play script with the names removed:
+- A reply, an answer to a question, a rebuttal, or a switch in which side is being argued means the speaker changed.
+- "You" usually addresses the other person; "I" and "we" stay with the same side.
+- One person often carries on across several segments, because a segment ends at any pause. With no sign of a change, keep the previous speaker.
+- A letter marked "confirmed" was set by the listener. Treat it as fact and use it to anchor the others.
+
+Give every new segment exactly one entry in speakers. If one segment seems to contain two people, label it with whoever says most of it.
+
+## What to flag
 
 Find places in the NEW segments where the reasoning is broken or the speaker is using a manipulation technique. There are three categories:
 
@@ -41,6 +65,8 @@ Most everyday speech contains none of these. The listener will stop trusting the
 - citing a relevant expert, or popularity where popularity is actually the point
 - real deadlines and real constraints stated plainly
 - fragments too short or too garbled to interpret; the rest of the sentence may arrive in a later segment
+
+Use the speaker labels to follow the argument: a straw man is one person misstating what another said, and a person questioning their own earlier point is not a fallacy.
 
 Only flag NEW segments. Earlier segments are given so you can follow the argument, and they have already been checked. If a problem only becomes clear across several segments, attach it to the new segment where it completes.
 
@@ -56,8 +82,13 @@ Write explanation and suggested_response in the language of the transcript.`;
 
 let client;
 
-function formatSegments(segments) {
-  return segments.map((s) => `[${s.id}] ${s.text}`).join("\n");
+function formatSegments(segments, withSpeakers) {
+  return segments
+    .map((s) => {
+      const who = withSpeakers && s.speaker ? ` ${s.speaker}${s.confirmed ? " (confirmed)" : ""}:` : "";
+      return `[${s.id}]${who} ${s.text}`;
+    })
+    .join("\n");
 }
 
 export async function analyze({ context, segments }) {
@@ -65,8 +96,8 @@ export async function analyze({ context, segments }) {
 
   const userContent =
     (context.length
-      ? `<earlier_segments>\n${formatSegments(context)}\n</earlier_segments>\n\n`
-      : "") + `<new_segments>\n${formatSegments(segments)}\n</new_segments>`;
+      ? `<earlier_segments>\n${formatSegments(context, true)}\n</earlier_segments>\n\n`
+      : "") + `<new_segments>\n${formatSegments(segments, false)}\n</new_segments>`;
 
   const response = await client.beta.messages.parse({
     model: MODEL,
@@ -81,12 +112,16 @@ export async function analyze({ context, segments }) {
   });
 
   if (response.stop_reason === "refusal" || !response.parsed_output) {
-    return { flags: [], skipped: response.stop_reason };
+    return { speakers: [], flags: [], skipped: response.stop_reason };
   }
 
-  // Drop flags that point at segments we did not ask about.
+  // Drop anything that points at segments we did not ask about.
   const ids = new Set(segments.map((s) => s.id));
-  return { flags: response.parsed_output.flags.filter((f) => ids.has(f.segment_id)) };
+  const { speakers, flags } = response.parsed_output;
+  return {
+    speakers: speakers.filter((g) => ids.has(g.segment_id)),
+    flags: flags.filter((f) => ids.has(f.segment_id)),
+  };
 }
 
 // Runs one analysis request and maps every outcome to an HTTP status and JSON body.

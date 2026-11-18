@@ -15,6 +15,9 @@
       <h1>Fallacy Detector</h1>
       <p id="status" class="status" role="status">Not listening</p>
       <div class="controls">
+        <label class="lang"><span>Spoken in</span>
+          <select id="language"></select>
+        </label>
         <button id="listen" class="rec" type="button"><span class="rec-icon" aria-hidden="true"></span><span id="listen-label">Listen</span></button>
         <button id="clear" class="plain" type="button">Clear</button>
       </div>
@@ -43,6 +46,7 @@
         <p class="said">Nothing said yet. Press Listen and talk, or type a line below.</p>
         <div class="notes">
           <p>Notes appear here, beside the line they refer to. Most lines get none.</p>
+          <p>Speakers are labelled A, B and so on from what is said. Click a label if it's wrong.</p>
           <button id="example" class="plain" type="button">Run a sample conversation</button>
         </div>
       </div>

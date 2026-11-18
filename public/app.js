@@ -9,6 +9,15 @@ const KIND_LABELS = {
   statistical_red_flag: "Statistics",
 };
 
+const SPEAKERS = ["A", "B", "C", "D", "E", "F"];
+
+const LANGUAGES = [
+  ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["de-DE", "Deutsch"], ["es-ES", "Español"],
+  ["fr-FR", "Français"], ["it-IT", "Italiano"], ["pt-BR", "Português"], ["nl-NL", "Nederlands"],
+  ["pl-PL", "Polski"], ["tr-TR", "Türkçe"], ["vi-VN", "Tiếng Việt"], ["hi-IN", "हिन्दी"],
+  ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["zh-CN", "中文"],
+];
+
 const EXAMPLE = [
   "So I looked at the plan you sent over and I think the price is a bit high for us",
   "Honestly everyone in your industry has already signed up so you'd be the only one left behind",
@@ -30,10 +39,11 @@ const els = {
   form: document.getElementById("type-form"),
   input: document.getElementById("type-input"),
   example: document.getElementById("example"),
+  language: document.getElementById("language"),
 };
 
 const state = {
-  segments: [], // { id, text, at, checked }
+  segments: [], // { id, text, at, checked, speaker, confirmed }
   flags: [], // { id, segment_id, quote, category, name, explanation, suggested_response, confidence }
   interim: "",
   nextId: 1,
@@ -87,7 +97,7 @@ async function runAnalysis(force) {
     return;
   }
   const context = state.segments.slice(Math.max(0, firstPending - CONTEXT_SEGMENTS), firstPending);
-  const toWire = (s) => ({ id: s.id, text: s.text });
+  const toWire = (s) => ({ id: s.id, text: s.text, speaker: s.speaker, confirmed: s.confirmed });
 
   state.inFlight = true;
   render(); // show "checking…" beside the lines being sent
@@ -101,7 +111,14 @@ async function runAnalysis(force) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `Analysis failed (${res.status}).`);
 
-    for (const segment of batch) segment.checked = true;
+    const guesses = new Map((body.speakers ?? []).map((g) => [g.segment_id, g.speaker]));
+    for (const segment of batch) {
+      segment.checked = true;
+      // A label the listener set while the request was running wins over the guess.
+      if (!segment.confirmed && SPEAKERS.includes(guesses.get(segment.id))) {
+        segment.speaker = guesses.get(segment.id);
+      }
+    }
     for (const flag of body.flags ?? []) {
       state.flags.push({ ...flag, id: `f${state.flags.length + 1}` });
     }
@@ -151,15 +168,17 @@ function markRanges(segment) {
   return ranges.sort((a, b) => a.start - b.start);
 }
 
-function renderNote(flag) {
+function renderNote(flag, speaker) {
   const note = el("article", `note ${flag.category}`);
   if (!state.shownFlags.has(flag.id)) {
     note.classList.add("new");
     state.shownFlags.add(flag.id);
   }
-  const kind = KIND_LABELS[flag.category] ?? flag.category;
+  const kind = [KIND_LABELS[flag.category] ?? flag.category];
+  if (speaker) kind.push(`by ${speaker}`);
+  if (flag.confidence === "medium") kind.push("depends on context");
   note.append(
-    el("p", "kind", flag.confidence === "medium" ? `${kind} · depends on context` : kind),
+    el("p", "kind", kind.join(" · ")),
     el("h3", "", flag.name),
     el("p", "why", flag.explanation),
   );
@@ -169,14 +188,25 @@ function renderNote(flag) {
   return note;
 }
 
-function renderLine(segment) {
+function renderLine(segment, previous) {
   const row = el("li", segment.checked ? "row" : "row pending");
   const said = el("p", "said");
   const notes = el("div", "notes");
 
+  if (segment.speaker) {
+    // A new turn gets some air above it, like a change of speaker in a script.
+    if (previous?.speaker && previous.speaker !== segment.speaker) row.classList.add("turn");
+    const who = el("button", "who", segment.speaker);
+    who.type = "button";
+    who.dataset.segment = segment.id;
+    who.title = "Wrong speaker? Click to change";
+    who.setAttribute("aria-label", `Speaker ${segment.speaker}. Change speaker`);
+    said.append(who);
+  }
+
   let cursor = 0;
   for (const { start, end, flag, overlaps } of markRanges(segment)) {
-    notes.append(renderNote(flag));
+    notes.append(renderNote(flag, segment.speaker));
     if (overlaps) continue; // the note still shows; the text is already marked there
     said.append(segment.text.slice(cursor, start));
     const mark = el("mark", flag.category, segment.text.slice(start, end));
@@ -195,7 +225,7 @@ function render() {
   const page = document.documentElement;
   const nearBottom = page.scrollHeight - window.scrollY - window.innerHeight < 120;
 
-  const rows = state.segments.map(renderLine);
+  const rows = state.segments.map((segment, i) => renderLine(segment, state.segments[i - 1]));
   if (state.interim) {
     const row = el("li", "row interim");
     row.append(el("span", "t", clock(elapsed())), el("p", "said", state.interim), el("div", "notes"));
@@ -207,6 +237,22 @@ function render() {
   // Follow the conversation unless the reader has scrolled back up.
   if (nearBottom && rows.length) window.scrollTo({ top: page.scrollHeight });
 }
+
+// Clicking a speaker label moves that line to the next speaker. The correction is sent
+// with later requests, so the model keeps its labels consistent with it.
+els.transcript.addEventListener("click", (event) => {
+  const who = event.target.closest(".who");
+  if (!who) return;
+  const segment = state.segments.find((s) => s.id === who.dataset.segment);
+  if (!segment) return;
+  // Offer the speakers on the other lines plus one new one, so repeated clicks come back round.
+  const others = state.segments.filter((s) => s !== segment && s.speaker).map((s) => SPEAKERS.indexOf(s.speaker));
+  const choices = SPEAKERS.slice(0, Math.min(SPEAKERS.length, Math.max(2, Math.max(-1, ...others) + 2)));
+  segment.speaker = choices[(choices.indexOf(segment.speaker) + 1) % choices.length];
+  segment.confirmed = true;
+  render();
+  els.transcript.querySelector(`.who[data-segment="${segment.id}"]`)?.focus();
+});
 
 // ---------- Typed input ----------
 
@@ -261,19 +307,42 @@ function setListening(on, statusText) {
     ticker = setInterval(tick, 1000);
   } else {
     els.status.textContent = statusText ?? "Not listening";
-    state.interim = "";
-    render();
   }
 }
 
+// The recogniser must be told which language to expect; the wrong one garbles everything.
+function storedLanguage() {
+  try {
+    return localStorage.getItem("language");
+  } catch {
+    return null;
+  }
+}
+const browserLanguage = LANGUAGES.find(([code]) => code === navigator.language)?.[0];
+for (const [code, name] of LANGUAGES) els.language.append(new Option(name, code));
+els.language.value = LANGUAGES.some(([code]) => code === storedLanguage())
+  ? storedLanguage()
+  : (browserLanguage ?? "en-US");
+
 if (!SpeechRecognition) {
   els.listen.disabled = true;
+  els.language.disabled = true;
   els.status.textContent = "Listening needs Chrome, Edge or Safari. You can still type below.";
 } else {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = true;
-  recognition.lang = navigator.language || "en-US";
+  recognition.lang = els.language.value;
+
+  els.language.addEventListener("change", () => {
+    recognition.lang = els.language.value;
+    try {
+      localStorage.setItem("language", els.language.value);
+    } catch {
+      // Storage can be unavailable; the choice still applies to this visit.
+    }
+    if (state.listening) recognition.stop(); // onend restarts it in the new language
+  });
 
   recognition.onresult = (event) => {
     let interim = "";
@@ -299,7 +368,16 @@ if (!SpeechRecognition) {
 
   // Browsers end a recognition session after a stretch of silence. Keep going until the user stops.
   recognition.onend = () => {
-    if (!state.listening) return;
+    // A session can end before it confirms the words it was still working on. Keep them.
+    if (state.interim) {
+      const unconfirmed = state.interim;
+      state.interim = "";
+      addSegment(unconfirmed);
+    }
+    if (!state.listening) {
+      runNow(); // check whatever is still waiting
+      return;
+    }
     try {
       recognition.start();
     } catch {
@@ -311,7 +389,6 @@ if (!SpeechRecognition) {
     if (state.listening) {
       setListening(false);
       recognition.stop();
-      runNow(); // check whatever is still waiting
     } else {
       try {
         recognition.start();
