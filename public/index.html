@@ -2,66 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#121314">
   <title>Fallacy Detector</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <header class="bar">
-    <div class="wrap bar-inner">
-      <h1>Fallacy Detector</h1>
-      <p id="status" class="status" role="status">Not listening</p>
-      <div class="controls">
-        <label class="lang"><span>Spoken in</span>
-          <select id="language"></select>
-        </label>
-        <button id="listen" class="rec" type="button"><span class="rec-icon" aria-hidden="true"></span><span id="listen-label">Listen</span></button>
-        <button id="clear" class="plain" type="button">Clear</button>
-      </div>
-    </div>
+<body data-view="live">
+  <svg width="0" height="0" class="defs" aria-hidden="true">
+    <symbol id="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/>
+    </symbol>
+  </svg>
+
+  <header class="top">
+    <h1>Fallacy Detector</h1>
+    <label class="lang"><span class="sr">Spoken language</span>
+      <select id="language"></select>
+    </label>
   </header>
 
-  <main class="wrap">
+  <!-- Live view: the conversation as it happens -->
+  <main id="live" class="page">
     <p id="error" class="error" role="alert" hidden></p>
 
-    <div class="sheet">
-      <div class="row heads" aria-hidden="true">
-        <span>Time</span>
-        <span>Said</span>
-        <span class="key">
-          <span>Notes</span>
-          <mark class="fallacy">fallacy</mark>
-          <mark class="pressure_tactic">pressure</mark>
-          <mark class="statistical_red_flag">statistics</mark>
-        </span>
-      </div>
+    <div id="empty" class="empty">
+      <p>Tap the microphone and talk. Fallacies appear under the line where they happen.</p>
+      <button id="example" class="plain" type="button">Try a sample conversation</button>
+    </div>
 
-      <ol id="transcript" class="lines" aria-label="Transcript with notes"></ol>
+    <ol id="transcript" class="turns" aria-label="Conversation"></ol>
+  </main>
 
-      <div id="empty" class="row empty">
-        <span class="t">00:00</span>
-        <p class="said">Nothing said yet. Press Listen and talk, or type a line below.</p>
-        <div class="notes">
-          <p>Notes appear here, beside the line they refer to. Most lines get none.</p>
-          <p>Speakers are labelled A, B and so on from what is said. Click a label if it's wrong.</p>
-          <button id="example" class="plain" type="button">Run a sample conversation</button>
-        </div>
-      </div>
-
-      <form id="type-form" class="row composer">
-        <label class="t" for="type-input">Type</label>
-        <input id="type-input" type="text" autocomplete="off" placeholder="What was said, then Enter">
-        <span></span>
-      </form>
+  <!-- Summary view: after the conversation ends -->
+  <main id="summary" class="page" hidden>
+    <div id="summary-body"></div>
+    <div class="summary-actions">
+      <button id="back" class="plain" type="button">Back to conversation</button>
+      <button id="fresh" class="plain" type="button">New conversation</button>
     </div>
   </main>
 
-  <footer class="wrap">
-    Listening uses your browser's speech recognition, which may send audio to the browser vendor.
-    The transcript text is sent to Anthropic. Tell people before you record them.
+  <footer id="dock" class="dock">
+    <form id="type-form" class="type-form" hidden>
+      <label class="sr" for="type-input">Type what was said</label>
+      <input id="type-input" type="text" autocomplete="off" placeholder="Type what was said, then Enter">
+    </form>
+    <div class="dock-row">
+      <button id="type-toggle" class="plain side" type="button">Type</button>
+      <button id="mic" class="mic" type="button" aria-label="Start listening">
+        <svg aria-hidden="true"><use href="#icon-mic"/></svg>
+      </button>
+      <button id="end" class="plain side" type="button" disabled>End</button>
+    </div>
+    <p id="status" class="status" role="status">Tap to listen</p>
   </footer>
 
   <script src="app.js" type="module"></script>

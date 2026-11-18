@@ -8,6 +8,8 @@ Listens to a conversation and flags, as it happens:
 
 Each flag shows the phrase, the formal name of the problem, and one sentence on why it is one. Borderline cases are shown too, marked as such.
 
+Lines from the same speaker are joined into one turn. Press **End** to see every flag grouped by who said it.
+
 It does not fact-check: it judges how something is argued, not whether it is true.
 
 ## Run it
@@ -20,7 +22,7 @@ cp .env.example .env   # then put your key in .env
 npm start
 ```
 
-Open http://localhost:3000 in Chrome, Edge or Safari and press **Start listening**.
+Open http://localhost:3000 in Chrome, Edge or Safari and tap the microphone.
 Other browsers have no speech recognition, but you can still type or paste text.
 
 ## How it works

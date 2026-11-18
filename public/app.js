@@ -35,18 +35,24 @@ const EXAMPLE = [
   "Can you send me the contract so I can read it over the weekend",
 ];
 
+const $ = (id) => document.getElementById(id);
 const els = {
-  listen: document.getElementById("listen"),
-  listenLabel: document.getElementById("listen-label"),
-  clear: document.getElementById("clear"),
-  status: document.getElementById("status"),
-  error: document.getElementById("error"),
-  transcript: document.getElementById("transcript"),
-  empty: document.getElementById("empty"),
-  form: document.getElementById("type-form"),
-  input: document.getElementById("type-input"),
-  example: document.getElementById("example"),
-  language: document.getElementById("language"),
+  mic: $("mic"),
+  end: $("end"),
+  status: $("status"),
+  error: $("error"),
+  live: $("live"),
+  transcript: $("transcript"),
+  empty: $("empty"),
+  example: $("example"),
+  typeToggle: $("type-toggle"),
+  form: $("type-form"),
+  input: $("type-input"),
+  language: $("language"),
+  summary: $("summary"),
+  summaryBody: $("summary-body"),
+  back: $("back"),
+  fresh: $("fresh"),
 };
 
 const state = {
@@ -57,7 +63,8 @@ const state = {
   inFlight: false,
   timer: null,
   listening: false,
-  startedAt: null, // when the session's clock started
+  ended: false, // true while the summary is showing
+  startedAt: null, // when the conversation's clock started
   listenSince: null, // when the current listening stretch started
   shownFlags: new Set(), // flags already drawn once, so only new notes animate in
 };
@@ -87,6 +94,11 @@ function scheduleAnalysis(delay = DEBOUNCE_MS) {
   state.timer = setTimeout(() => runAnalysis(false), delay);
 }
 
+function runNow() {
+  clearTimeout(state.timer);
+  runAnalysis(true);
+}
+
 function wordCount(segments) {
   return segments.reduce((n, s) => n + s.text.split(" ").length, 0);
 }
@@ -114,7 +126,6 @@ async function runAnalysis(force) {
   });
 
   state.inFlight = true;
-  render(); // show "checking…" beside the lines being sent
   let failed = false;
   try {
     const res = await fetch("/api/analyze", {
@@ -140,15 +151,16 @@ async function runAnalysis(force) {
   } catch (error) {
     // Leave the batch unchecked; it is retried with the next phrase that arrives.
     failed = true;
-    showError(error instanceof TypeError ? "Can't reach the server. Is it still running?" : error.message);
+    showError(error instanceof TypeError ? "Can't reach the server." : error.message);
   } finally {
     state.inFlight = false;
     render();
+    // After a failure, wait for new speech before trying again.
     if (!failed && state.segments.some((s) => !s.checked)) scheduleAnalysis(0);
   }
 }
 
-// ---------- Rendering ----------
+// ---------- Rendering: live conversation ----------
 
 function showError(message) {
   els.error.hidden = !message;
@@ -182,90 +194,172 @@ function markRanges(segment) {
   return ranges.sort((a, b) => a.start - b.start);
 }
 
+function kindLine(flag, speaker) {
+  const parts = [KIND_LABELS[flag.category] ?? flag.category];
+  if (speaker) parts.push(speaker);
+  if (flag.confidence === "medium") parts.push("borderline");
+  return parts.join(" · ");
+}
+
 function renderNote(flag, speaker) {
-  const note = el("article", `note ${flag.category}`);
+  const note = el("div", "note");
   if (!state.shownFlags.has(flag.id)) {
     note.classList.add("new");
     state.shownFlags.add(flag.id);
   }
-  const kind = [KIND_LABELS[flag.category] ?? flag.category];
-  if (speaker) kind.push(`by ${speaker}`);
-  if (flag.confidence === "medium") kind.push("borderline");
-  note.append(
-    el("p", "kind", kind.join(" · ")),
-    el("h3", "", flag.name),
-    el("p", "why", flag.explanation),
-  );
+  note.append(el("p", "kind", kindLine(flag, speaker)), el("h3", "name", flag.name), el("p", "why", flag.explanation));
   return note;
 }
 
-function renderLine(segment, previous) {
-  const row = el("li", segment.checked ? "row" : "row pending");
-  const said = el("p", "said");
-  const notes = el("div", "notes");
+// Lines arrive one pause at a time. Once checked, consecutive lines from the same
+// speaker are shown as one turn so the conversation reads cleanly.
+function groupTurns() {
+  const turns = [];
+  for (const segment of state.segments) {
+    const last = turns.at(-1);
+    const joins = last && last.checked && segment.checked && segment.speaker && last.speaker === segment.speaker;
+    if (joins) last.segments.push(segment);
+    else turns.push({ speaker: segment.speaker, checked: segment.checked, segments: [segment] });
+  }
+  return turns;
+}
 
-  if (segment.speaker) {
-    // A new turn gets some air above it, like a change of speaker in a script.
-    if (previous?.speaker && previous.speaker !== segment.speaker) row.classList.add("turn");
-    const who = el("button", "who", segment.speaker);
+function renderTurn(turn) {
+  const item = el("li", turn.checked ? "turn" : "turn pending");
+  const line = el("p", "line");
+  const notes = [];
+
+  if (turn.speaker) {
+    const who = el("button", "who", turn.speaker);
     who.type = "button";
-    who.dataset.segment = segment.id;
-    who.title = "Wrong speaker? Click to change";
-    who.setAttribute("aria-label", `Speaker ${segment.speaker}. Change speaker`);
-    said.append(who);
+    who.dataset.segment = turn.segments[0].id;
+    who.title = "Wrong speaker? Tap to change";
+    who.setAttribute("aria-label", `Speaker ${turn.speaker}. Change speaker`);
+    line.append(who);
   }
 
-  let cursor = 0;
-  for (const { start, end, flag, overlaps } of markRanges(segment)) {
-    notes.append(renderNote(flag, segment.speaker));
-    if (overlaps) continue; // the note still shows; the text is already marked there
-    said.append(segment.text.slice(cursor, start));
-    const mark = el("mark", flag.category, segment.text.slice(start, end));
-    mark.title = flag.name;
-    said.append(mark);
-    cursor = end;
+  for (const segment of turn.segments) {
+    let cursor = 0;
+    for (const { start, end, flag, overlaps } of markRanges(segment)) {
+      notes.push(renderNote(flag, segment.speaker));
+      if (overlaps) continue; // the note still shows; the text is already marked there
+      line.append(segment.text.slice(cursor, start));
+      line.append(el("mark", "", segment.text.slice(start, end)));
+      cursor = end;
+    }
+    line.append(segment.text.slice(cursor) + " ");
   }
-  said.append(segment.text.slice(cursor));
-  if (!segment.checked) notes.append(el("p", "checking", state.inFlight ? "checking…" : "waiting"));
 
-  row.append(el("span", "t", clock(segment.at)), said, notes);
-  return row;
+  item.append(line, ...notes);
+  return item;
+}
+
+function renderLive() {
+  const page = document.documentElement;
+  const nearBottom = page.scrollHeight - window.scrollY - window.innerHeight < 160;
+
+  const items = groupTurns().map(renderTurn);
+  if (state.interim) {
+    const item = el("li", "turn interim");
+    item.append(el("p", "line", state.interim));
+    items.push(item);
+  }
+  els.transcript.replaceChildren(...items);
+  els.empty.hidden = items.length > 0;
+
+  // Follow the conversation unless the reader has scrolled back up.
+  if (nearBottom && items.length) window.scrollTo({ top: page.scrollHeight });
+}
+
+// ---------- Rendering: summary ----------
+
+function plural(n, word) {
+  return n === 1 ? `1 ${word}` : `${n} ${word === "fallacy" ? "fallacies" : word + "s"}`;
+}
+
+function renderSummary() {
+  const bySegment = new Map(state.segments.map((s) => [s.id, s]));
+  const speakers = [...new Set(state.segments.map((s) => s.speaker).filter(Boolean))].sort();
+  const entries = state.flags.map((flag) => {
+    const segment = bySegment.get(flag.segment_id);
+    return { flag, at: segment?.at ?? 0, speaker: segment?.speaker ?? "?" };
+  });
+  if (entries.some((e) => e.speaker === "?")) speakers.push("?");
+  const label = (speaker) => (speaker === "?" ? "Unknown speaker" : `Speaker ${speaker}`);
+  const length = state.segments.at(-1)?.at ?? 0;
+
+  const nodes = [
+    el("p", "sum-meta", `Conversation · ${clock(length)}`),
+    el("h2", "sum-title", entries.length ? plural(entries.length, "fallacy") : "No fallacies"),
+  ];
+  if (state.segments.some((s) => !s.checked)) {
+    nodes.push(el("p", "sum-note", els.error.hidden ? "Still checking the last lines…" : "The last lines could not be checked."));
+  }
+
+  if (speakers.length) {
+    const tally = el("ul", "tally");
+    for (const speaker of speakers) {
+      const row = el("li");
+      row.append(el("span", "", label(speaker)), el("b", "", String(entries.filter((e) => e.speaker === speaker).length)));
+      tally.append(row);
+    }
+    nodes.push(tally);
+  }
+
+  for (const speaker of speakers) {
+    const mine = entries.filter((e) => e.speaker === speaker);
+    if (!mine.length) continue;
+    const list = el("ol", "entries");
+    for (const { flag, at } of mine) {
+      const item = el("li");
+      item.append(
+        el("p", "kind", `${clock(at)} · ${kindLine(flag)}`),
+        el("h3", "name", flag.name),
+        el("p", "why", flag.explanation),
+        el("q", "", flag.quote.trim()),
+      );
+      list.append(item);
+    }
+    nodes.push(el("h3", "sum-speaker", label(speaker)), list);
+  }
+  els.summaryBody.replaceChildren(...nodes);
 }
 
 function render() {
-  const page = document.documentElement;
-  const nearBottom = page.scrollHeight - window.scrollY - window.innerHeight < 120;
-
-  const rows = state.segments.map((segment, i) => renderLine(segment, state.segments[i - 1]));
-  if (state.interim) {
-    const row = el("li", "row interim");
-    row.append(el("span", "t", clock(elapsed())), el("p", "said", state.interim), el("div", "notes"));
-    rows.push(row);
-  }
-  els.transcript.replaceChildren(...rows);
-  els.empty.hidden = rows.length > 0;
-
-  // Follow the conversation unless the reader has scrolled back up.
-  if (nearBottom && rows.length) window.scrollTo({ top: page.scrollHeight });
+  document.body.dataset.view = state.ended ? "summary" : "live";
+  els.live.hidden = state.ended;
+  els.summary.hidden = !state.ended;
+  els.end.disabled = state.segments.length === 0 && !state.interim;
+  if (state.ended) renderSummary();
+  else renderLive();
 }
 
-// Clicking a speaker label moves that line to the next speaker. The correction is sent
-// with later requests, so the model keeps its labels consistent with it.
+// ---------- Controls ----------
+
+// Tapping a speaker label moves that whole turn to the next speaker. The correction is
+// sent with later requests, so the model keeps its labels consistent with it.
 els.transcript.addEventListener("click", (event) => {
   const who = event.target.closest(".who");
   if (!who) return;
-  const segment = state.segments.find((s) => s.id === who.dataset.segment);
-  if (!segment) return;
-  // Offer the speakers on the other lines plus one new one, so repeated clicks come back round.
-  const others = state.segments.filter((s) => s !== segment && s.speaker).map((s) => SPEAKERS.indexOf(s.speaker));
+  const turn = groupTurns().find((t) => t.segments[0].id === who.dataset.segment);
+  if (!turn) return;
+  // Offer the speakers on the other lines plus one new one, so repeated taps come back round.
+  const others = state.segments
+    .filter((s) => !turn.segments.includes(s) && s.speaker)
+    .map((s) => SPEAKERS.indexOf(s.speaker));
   const choices = SPEAKERS.slice(0, Math.min(SPEAKERS.length, Math.max(2, Math.max(-1, ...others) + 2)));
-  segment.speaker = choices[(choices.indexOf(segment.speaker) + 1) % choices.length];
-  segment.confirmed = true;
+  const next = choices[(choices.indexOf(turn.speaker) + 1) % choices.length];
+  for (const segment of turn.segments) {
+    segment.speaker = next;
+    segment.confirmed = true;
+  }
   render();
-  els.transcript.querySelector(`.who[data-segment="${segment.id}"]`)?.focus();
 });
 
-// ---------- Typed input ----------
+els.typeToggle.addEventListener("click", () => {
+  els.form.hidden = !els.form.hidden;
+  if (!els.form.hidden) els.input.focus();
+});
 
 els.form.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -281,18 +375,32 @@ els.example.addEventListener("click", () => {
   runNow();
 });
 
-function runNow() {
-  clearTimeout(state.timer);
-  runAnalysis(true);
-}
+els.end.addEventListener("click", () => {
+  state.ended = true;
+  if (state.listening) {
+    setListening(false);
+    recognition.stop(); // onend takes the last words and checks them
+  } else {
+    runNow();
+  }
+  render();
+  window.scrollTo({ top: 0 });
+});
 
-els.clear.addEventListener("click", () => {
+els.back.addEventListener("click", () => {
+  state.ended = false;
+  render();
+  window.scrollTo({ top: document.documentElement.scrollHeight });
+});
+
+els.fresh.addEventListener("click", () => {
   clearTimeout(state.timer);
+  for (let i = 0; i < heard.length; i++) taken[i] = heard[i].length; // don't bring old words back
   state.segments = [];
   state.flags = [];
-  for (let i = 0; i < heard.length; i++) taken[i] = heard[i].length; // don't bring cleared words back
   state.interim = "";
-  state.startedAt = state.listening ? Date.now() : null;
+  state.startedAt = null;
+  state.ended = false;
   state.shownFlags.clear();
   showError(null);
   render();
@@ -302,7 +410,6 @@ els.clear.addEventListener("click", () => {
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
-
 let ticker = null;
 
 // Words from the current recognition session. heard[i] is the latest wording of the i-th
@@ -343,18 +450,17 @@ function showPending() {
 
 function setListening(on, statusText) {
   state.listening = on;
-  els.listenLabel.textContent = on ? "Stop" : "Listen";
-  els.listen.classList.toggle("live", on);
-  els.status.classList.toggle("live", on);
+  els.mic.classList.toggle("live", on);
+  els.mic.setAttribute("aria-label", on ? "Stop listening" : "Start listening");
   clearInterval(ticker);
   if (on) {
-    elapsed(); // start the session clock if this is the first activity
+    elapsed(); // start the conversation clock if this is the first activity
     state.listenSince = Date.now();
     const tick = () => (els.status.textContent = `Listening ${clock(Date.now() - state.listenSince)}`);
     tick();
     ticker = setInterval(tick, 1000);
   } else {
-    els.status.textContent = statusText ?? "Not listening";
+    els.status.textContent = statusText ?? "Tap to listen";
   }
 }
 
@@ -373,9 +479,10 @@ els.language.value = LANGUAGES.some(([code]) => code === storedLanguage())
   : (browserLanguage ?? "en-US");
 
 if (!SpeechRecognition) {
-  els.listen.disabled = true;
+  els.mic.disabled = true;
   els.language.disabled = true;
-  els.status.textContent = "Listening needs Chrome, Edge or Safari. You can still type below.";
+  els.form.hidden = false;
+  els.status.textContent = "Listening needs Chrome, Edge or Safari";
 } else {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
@@ -422,11 +529,11 @@ if (!SpeechRecognition) {
 
   recognition.onerror = (event) => {
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      setListening(false, "Microphone access was blocked. Allow it in the browser's site settings.");
+      setListening(false, "Microphone blocked. Allow it in site settings");
     } else if (event.error === "audio-capture") {
-      setListening(false, "No microphone found.");
+      setListening(false, "No microphone found");
     } else if (event.error === "network") {
-      setListening(false, "Speech recognition needs an internet connection.");
+      setListening(false, "Speech recognition needs internet");
     }
     // "no-speech" and "aborted" are routine; onend restarts the session.
   };
@@ -448,7 +555,7 @@ if (!SpeechRecognition) {
     }
   };
 
-  els.listen.addEventListener("click", () => {
+  els.mic.addEventListener("click", () => {
     if (state.listening) {
       setListening(false);
       recognition.stop();
@@ -458,7 +565,7 @@ if (!SpeechRecognition) {
         recognition.start();
         setListening(true);
       } catch {
-        setListening(false, "Couldn't start listening. Try again.");
+        setListening(false, "Couldn't start listening. Try again");
       }
     }
   });
