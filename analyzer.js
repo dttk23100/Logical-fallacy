@@ -47,9 +47,9 @@ Only flag NEW segments. Earlier segments are given so you can follow the argumen
 For each flag:
 - segment_id: the id of the new segment it belongs to.
 - quote: the shortest span, copied character for character from that segment, that contains the problem.
-- name: the common plain name, for example "False dilemma" or "False urgency".
-- explanation: one sentence, in plain words, saying what is wrong with this specific statement. The listener reads it at a glance mid-conversation.
-- suggested_response: one short thing the listener could say or ask next, calm and non-accusatory, that does not name the fallacy.
+- name: the formal, textbook name of the problem, the term someone could look up. Use the Latin name where that is the standard one, and add the plain name in brackets when the formal one is obscure. Examples: "Ad hominem", "Straw man", "False dilemma", "Tu quoque (whataboutism)", "Argumentum ad populum (bandwagon)", "Post hoc ergo propter hoc", "Slippery slope", "Begging the question", "Appeal to authority", "No true Scotsman", "Moving the goalposts", "Hasty generalization", "False urgency", "Guilt trip", "Cherry-picking", "Unsourced statistic", "Correlation-causation fallacy". When a statement fits a named logical fallacy, classify it as a fallacy under that name, even if it is also being used to apply pressure.
+- explanation: one short sentence, at most about 15 words, saying why this is that fallacy. State the flaw directly; do not restate what was said or hedge.
+- suggested_response: one short question or sentence, at most about 12 words, that the listener could say next. Calm, non-accusatory, and without naming the fallacy.
 - confidence: "high" when the problem is clear from the words alone, "medium" when it depends on context you cannot see.
 
 Write explanation and suggested_response in the language of the transcript.`;

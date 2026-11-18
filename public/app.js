@@ -14,6 +14,8 @@ const EXAMPLE = [
   "Honestly everyone in your industry has already signed up so you'd be the only one left behind",
   "And this price is only valid until tonight after that I can't guarantee anything",
   "Studies show that companies using this grow three hundred percent faster",
+  "Well you would say that you have never run a business in your life",
+  "So you are saying we should just never spend money on anything",
   "Can you send me the contract so I can read it over the weekend",
 ];
 
