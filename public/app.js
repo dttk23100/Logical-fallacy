@@ -73,6 +73,7 @@ const state = {
   viewing: null, // a saved conversation open in the summary view, or null for the current one
   conversationId: null, // set when the first words arrive
   startedOn: null, // wall-clock time the conversation began
+  finished: false, // true once End was pressed
   startedAt: null, // when the conversation's clock started
   listenSince: null, // when the current listening stretch started
   shownFlags: new Set(), // flags already drawn once, so only new notes animate in
@@ -506,7 +507,15 @@ els.example.addEventListener("click", () => {
   runNow();
 });
 
-els.home.addEventListener("click", () => show("live"));
+// Home is the start screen. A conversation that was ended is put away (it stays in History);
+// one still in progress is kept, so looking something up mid-conversation doesn't lose it.
+els.home.addEventListener("click", () => {
+  if (state.finished) {
+    saveCurrent();
+    resetConversation();
+  }
+  show("live");
+});
 els.historyOpen.addEventListener("click", () => show("history"));
 els.dictionaryOpen.addEventListener("click", () => show("dictionary"));
 els.search.addEventListener("input", renderDictionary);
@@ -524,11 +533,16 @@ els.end.addEventListener("click", () => {
   } else {
     runNow();
   }
+  state.finished = true;
   saveCurrent();
   show("summary");
 });
 
-els.back.addEventListener("click", () => show(state.viewing ? "history" : "live"));
+els.back.addEventListener("click", () => {
+  if (state.viewing) return show("history");
+  state.finished = false; // going back into the conversation resumes it
+  show("live");
+});
 
 // Deleting takes two taps, since it can't be undone.
 els.remove.addEventListener("click", () => {
@@ -551,6 +565,7 @@ function resetConversation() {
   state.startedAt = null;
   state.conversationId = null;
   state.startedOn = null;
+  state.finished = false;
   state.shownFlags.clear();
   showError(null);
 }
