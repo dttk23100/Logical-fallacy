@@ -21,17 +21,8 @@ const SPEAKERS = ["A", "B", "C", "D", "E", "F"];
 const HISTORY_KEY = "conversations";
 const HISTORY_LIMIT = 30; // oldest saved conversations are dropped beyond this
 
-const EXAMPLE = [
-  "So I looked at the plan you sent over and I think the price is a bit high for us",
-  "Honestly everyone in your industry has already signed up so you'd be the only one left behind",
-  "And this price is only valid until tonight after that I can't guarantee anything",
-  "Studies show that companies using this grow three hundred percent faster",
-  "Well you would say that you have never run a business in your life",
-  "So you are saying we should just never spend money on anything",
-  "Can you send me the contract so I can read it over the weekend",
-];
-
 import { DICTIONARY } from "./dictionary.js";
+import { SAMPLE } from "./sample.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -66,6 +57,7 @@ const state = {
   flags: [], // { id, segment_id, quote, category, name, explanation, confidence }
   interim: "",
   nextId: 1,
+  nextFlag: 100, // ids for flags from live analysis; the sample's own start at f1
   inFlight: false,
   timer: null,
   listening: false,
@@ -161,7 +153,7 @@ async function runAnalysis(force) {
       if (repaired && ratio > 0.6 && ratio < 1.6) segment.text = repaired;
     }
     for (const flag of body.flags ?? []) {
-      state.flags.push({ ...flag, id: `f${state.flags.length + 1}` });
+      state.flags.push({ ...flag, id: `f${state.nextFlag++}` });
     }
     showError(null);
   } catch (error) {
@@ -502,9 +494,14 @@ els.form.addEventListener("submit", (event) => {
   runNow();
 });
 
+// The sample comes with its analysis already done, so it appears at once. It is a demo,
+// so it is not saved to History unless the conversation is continued from it.
 els.example.addEventListener("click", () => {
-  for (const line of EXAMPLE) addSegment(line);
-  runNow();
+  state.segments = SAMPLE.segments.map((segment) => ({ ...segment, checked: true }));
+  state.flags = SAMPLE.flags.map((flag) => ({ ...flag }));
+  state.nextId = state.segments.length + 1;
+  state.startedAt = Date.now() - (state.segments.at(-1)?.at ?? 0);
+  render();
 });
 
 // Home is the start screen. A conversation that was ended is put away (it stays in History);
