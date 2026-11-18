@@ -88,3 +88,32 @@ export async function analyze({ context, segments }) {
   const ids = new Set(segments.map((s) => s.id));
   return { flags: response.parsed_output.flags.filter((f) => ids.has(f.segment_id)) };
 }
+
+// Runs one analysis request and maps every outcome to an HTTP status and JSON body.
+// Shared by the local server and the Vercel function.
+export async function respond(payload) {
+  const input = AnalyzeInput.safeParse(payload);
+  if (!input.success) return { status: 400, body: { error: "Invalid request body" } };
+
+  try {
+    return { status: 200, body: await analyze(input.data) };
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) {
+      return { status: 401, body: { error: "The Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY and restart." } };
+    }
+    if (error instanceof Anthropic.RateLimitError) {
+      return { status: 429, body: { error: "Rate limited by the Anthropic API. Try again in a moment." } };
+    }
+    if (error instanceof Anthropic.APIError) {
+      console.error("Anthropic API error:", error.status, error.message);
+      return { status: 502, body: { error: `Anthropic API error (${error.status ?? "network"}).` } };
+    }
+    console.error(error);
+    // The SDK throws a plain error at call time when no credentials are configured.
+    const noKey = /api[_ ]?key|auth/i.test(String(error?.message));
+    return {
+      status: noKey ? 401 : 500,
+      body: { error: noKey ? "No Anthropic API key found. Set ANTHROPIC_API_KEY and restart." : "Analysis failed." },
+    };
+  }
+}

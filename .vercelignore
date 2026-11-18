@@ -1,0 +1,2 @@
+# The Vercel deployment serves public/ and api/; server.js is for running locally.
+server.js

@@ -2,8 +2,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import Anthropic from "@anthropic-ai/sdk";
-import { analyze, AnalyzeInput } from "./analyzer.js";
+import { respond } from "./analyzer.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "public");
@@ -41,35 +40,15 @@ function readBody(req) {
 }
 
 async function handleAnalyze(req, res) {
-  let input;
+  let payload;
   try {
-    input = AnalyzeInput.parse(JSON.parse(await readBody(req)));
+    payload = JSON.parse(await readBody(req));
   } catch (error) {
     sendJson(res, error.status ?? 400, { error: "Invalid request body" });
     return;
   }
-
-  try {
-    sendJson(res, 200, await analyze(input));
-  } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      sendJson(res, 401, { error: "The Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY in .env and restart." });
-    } else if (error instanceof Anthropic.RateLimitError) {
-      sendJson(res, 429, { error: "Rate limited by the Anthropic API. Try again in a moment." });
-    } else if (error instanceof Anthropic.APIError) {
-      console.error("Anthropic API error:", error.status, error.message);
-      sendJson(res, 502, { error: `Anthropic API error (${error.status ?? "network"}).` });
-    } else {
-      console.error(error);
-      // The SDK throws a plain error at call time when no credentials are configured.
-      const noKey = /api[_ ]?key|auth/i.test(String(error?.message));
-      sendJson(res, noKey ? 401 : 500, {
-        error: noKey
-          ? "No Anthropic API key found. Set ANTHROPIC_API_KEY in .env and restart."
-          : "Analysis failed.",
-      });
-    }
-  }
+  const { status, body } = await respond(payload);
+  sendJson(res, status, body);
 }
 
 async function serveStatic(req, res) {

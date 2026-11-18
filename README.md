@@ -31,9 +31,17 @@ Other browsers have no speech recognition, but you can still type or paste text.
 
 | File | Purpose |
 |---|---|
-| `server.js` | Serves the page and the `/api/analyze` endpoint |
+| `server.js` | Local server: serves the page and the `/api/analyze` endpoint |
+| `api/analyze.js` | The same endpoint as a Vercel function |
 | `analyzer.js` | Prompt, output schema and the Claude call |
 | `public/` | The page: speech capture, request queue, rendering |
+
+## Deploy to Vercel
+
+Import the repository in Vercel with no framework preset and set `ANTHROPIC_API_KEY` as an environment variable.
+Vercel serves `public/` as the site and `api/analyze.js` as the endpoint.
+
+Anyone who can open the deployed URL can run analyses on your key, so keep the URL private or turn on Vercel's deployment protection.
 
 ## Limits
 
