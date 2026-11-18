@@ -249,18 +249,6 @@ mark.statistical_red_flag { --pencil: var(--ochre); text-decoration-style: dashe
   color: var(--pencil);
 }
 .note p { margin: 0; }
-.note .say {
-  margin-top: 0.35rem;
-  font: italic 1.0625rem/1.4 var(--speech);
-}
-.note .say span {
-  margin-right: 0.5rem;
-  font: 500 0.6875rem/1 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-
 /* ---------- Empty state and composer ---------- */
 
 .empty .said { color: var(--faint); }

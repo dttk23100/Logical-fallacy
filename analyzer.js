@@ -30,7 +30,6 @@ const Flag = z.object({
   category: z.enum(["fallacy", "pressure_tactic", "statistical_red_flag"]),
   name: z.string(),
   explanation: z.string(),
-  suggested_response: z.string(),
   confidence: z.enum(["high", "medium"]),
 });
 
@@ -62,11 +61,9 @@ Find places in the NEW segments where the reasoning is broken or the speaker is 
 - pressure_tactic: an attempt to push a decision by something other than reasons, such as false urgency or artificial scarcity, guilt-tripping, flattery used as leverage, foot-in-the-door escalation, "everyone else already agreed", or threats dressed up as concern.
 - statistical_red_flag: a number or study used in a way that can mislead without anyone needing to look it up, such as a statistic with no source, relative risk given without the absolute numbers, a cherry-picked time range or sample, correlation presented as causation, or suspiciously precise figures. You cannot verify facts, so never say a number is false; say what is missing or what to ask.
 
-Most everyday speech contains none of these. The listener will stop trusting the tool if it flags ordinary talk, so a wrong flag costs more than a missed one. Return an empty list unless you are confident. In particular, do not flag:
-- opinions, preferences, jokes, exaggeration for effect, or emotional expression that is not standing in for an argument
-- citing a relevant expert, or popularity where popularity is actually the point
-- real deadlines and real constraints stated plainly
-- fragments too short or too garbled to interpret; the rest of the sentence may arrive in a later segment
+Lean towards flagging. The listener would sooner see a borderline case and judge it for themselves than have one slip past, so when a statement plausibly fits a named pattern, flag it and mark it "medium". Keep "high" for cases that are clear from the words alone. Informal, emotional or exaggerated wording does not excuse an argument: "come on, everyone does it" is still an appeal to popularity.
+
+Leave alone only what makes no argument at all: plain statements of fact or preference, questions, small talk, a relevant expert cited on their own subject, and fragments too short to interpret (the rest may arrive in a later segment).
 
 Use the speaker labels to follow the argument: a straw man is one person misstating what another said, and a person questioning their own earlier point is not a fallacy.
 
@@ -81,10 +78,9 @@ For each flag:
 - quote: the shortest span, copied character for character from that segment, that contains the problem.
 - name: the formal, textbook name of the problem, the term someone could look up. Use the Latin name where that is the standard one, and add the plain name in brackets when the formal one is obscure. Examples: "Ad hominem", "Straw man", "False dilemma", "Tu quoque (whataboutism)", "Argumentum ad populum (bandwagon)", "Post hoc ergo propter hoc", "Slippery slope", "Begging the question", "Appeal to authority", "No true Scotsman", "Moving the goalposts", "Hasty generalization", "False urgency", "Guilt trip", "Cherry-picking", "Unsourced statistic", "Correlation-causation fallacy". When a statement fits a named logical fallacy, classify it as a fallacy under that name, even if it is also being used to apply pressure.
 - explanation: one short sentence, at most about 15 words, saying why this is that fallacy. State the flaw directly; do not restate what was said or hedge.
-- suggested_response: one short question or sentence, at most about 12 words, that the listener could say next. Calm, non-accusatory, and without naming the fallacy.
-- confidence: "high" when the problem is clear from the words alone, "medium" when it depends on context you cannot see.
+- confidence: "high" when the problem is clear from the words alone, "medium" when it is borderline or depends on context you cannot see.
 
-Write explanation and suggested_response in the language of the transcript.`;
+Write explanation in the language of the transcript.`;
 
 let client;
 

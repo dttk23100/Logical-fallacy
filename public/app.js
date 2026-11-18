@@ -51,7 +51,7 @@ const els = {
 
 const state = {
   segments: [], // { id, text, at, checked, speaker, confirmed }
-  flags: [], // { id, segment_id, quote, category, name, explanation, suggested_response, confidence }
+  flags: [], // { id, segment_id, quote, category, name, explanation, confidence }
   interim: "",
   nextId: 1,
   inFlight: false,
@@ -190,15 +190,12 @@ function renderNote(flag, speaker) {
   }
   const kind = [KIND_LABELS[flag.category] ?? flag.category];
   if (speaker) kind.push(`by ${speaker}`);
-  if (flag.confidence === "medium") kind.push("depends on context");
+  if (flag.confidence === "medium") kind.push("borderline");
   note.append(
     el("p", "kind", kind.join(" · ")),
     el("h3", "", flag.name),
     el("p", "why", flag.explanation),
   );
-  const say = el("p", "say");
-  say.append(el("span", "", "Say"), flag.suggested_response);
-  note.append(say);
   return note;
 }
 

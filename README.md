@@ -6,7 +6,7 @@ Listens to a conversation and flags, as it happens:
 - **Pressure tactics** such as false urgency and guilt-tripping
 - **Statistics red flags** such as numbers with no source or correlation presented as causation
 
-Each flag shows the phrase, one sentence on what is wrong with it, and something you could say next.
+Each flag shows the phrase, the formal name of the problem, and one sentence on why it is one. Borderline cases are shown too, marked as such.
 
 It does not fact-check: it judges how something is argued, not whether it is true.
 
