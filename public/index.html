@@ -18,13 +18,11 @@
   </svg>
 
   <header class="top">
-    <h1>Fallacy Detector</h1>
-    <div class="top-right">
-      <button id="dictionary-open" class="plain" type="button">Dictionary</button>
-      <label class="lang"><span class="sr">Spoken language</span>
-        <select id="language"></select>
-      </label>
-    </div>
+    <h1><button id="home" class="nav" type="button">Fallacy Detector</button></h1>
+    <nav class="top-right" aria-label="Sections">
+      <button id="history-open" class="nav" type="button">History</button>
+      <button id="dictionary-open" class="nav" type="button">Dictionary</button>
+    </nav>
   </header>
 
   <!-- Live view: the conversation as it happens -->
@@ -33,7 +31,7 @@
 
     <div id="empty" class="empty">
       <p>Tap the microphone and talk. Fallacies appear under the line where they happen.</p>
-      <button id="example" class="plain" type="button">Try a sample conversation</button>
+      <button id="example" class="btn" type="button">Try a sample conversation</button>
     </div>
 
     <ol id="transcript" class="turns" aria-label="Conversation"></ol>
@@ -43,14 +41,21 @@
   <main id="summary" class="page" hidden>
     <div id="summary-body"></div>
     <div class="summary-actions">
-      <button id="back" class="plain" type="button">Back to conversation</button>
-      <button id="fresh" class="plain" type="button">New conversation</button>
+      <button id="back" class="btn" type="button">Back to conversation</button>
+      <button id="fresh" class="btn solid" type="button">New conversation</button>
+      <button id="remove" class="btn" type="button" hidden>Delete</button>
     </div>
+  </main>
+
+  <!-- History view: conversations saved on this device -->
+  <main id="history" class="page" hidden>
+    <h2 class="sum-title">History</h2>
+    <p class="sum-note">Saved on this device only.</p>
+    <ol id="history-list" class="entries"></ol>
   </main>
 
   <!-- Dictionary view: every fallacy the detector names, with a one-line meaning -->
   <main id="dictionary" class="page" hidden>
-    <button id="dictionary-close" class="plain" type="button">Back</button>
     <h2 class="sum-title">Dictionary</h2>
     <label class="sr" for="dictionary-search">Search the dictionary</label>
     <input id="dictionary-search" class="search" type="search" autocomplete="off" placeholder="Search">
@@ -63,11 +68,11 @@
       <input id="type-input" type="text" autocomplete="off" placeholder="Type what was said, then Enter">
     </form>
     <div class="dock-row">
-      <button id="type-toggle" class="plain side" type="button">Type</button>
+      <button id="type-toggle" class="btn side" type="button">Type</button>
       <button id="mic" class="mic" type="button" aria-label="Start listening">
         <svg aria-hidden="true"><use href="#icon-mic"/></svg>
       </button>
-      <button id="end" class="plain side" type="button" disabled>End</button>
+      <button id="end" class="btn side" type="button" disabled>End</button>
     </div>
     <p id="status" class="status" role="status">Tap to listen</p>
   </footer>

@@ -12,6 +12,8 @@ Lines from the same speaker are joined into one turn. Press **End** to see every
 
 The model also repairs words the speech recogniser mis-heard, using the surrounding conversation. A built-in dictionary lists every fallacy with a one-line meaning.
 
+Conversations are saved in the browser on the device you use, and listed under **History**.
+
 It does not fact-check: it judges how something is argued, not whether it is true.
 
 ## Run it
@@ -50,7 +52,7 @@ Anyone who can open the deployed URL can run analyses on your key, so keep the U
 ## Limits
 
 - Speakers are worked out from the words, not the voices, so labels are a best guess. Click a label to correct it; later lines follow the correction.
-- The browser's speech recognition can miss words, mostly when people talk over each other. Pick the spoken language in the bar; the wrong one garbles the transcript.
+- The browser's speech recognition can miss words, mostly when people talk over each other. It is set to English.
 - A flag appears a few seconds after the phrase. Set `FALLACY_MODEL` to a smaller model to shorten that.
 - Microphone access only works on `localhost` or over HTTPS.
 - Chrome sends audio to Google for recognition, and the transcript text goes to Anthropic. Tell people before you record them; in many places you are required to.

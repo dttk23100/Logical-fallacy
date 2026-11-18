@@ -18,12 +18,8 @@ const KIND_LABELS = {
 
 const SPEAKERS = ["A", "B", "C", "D", "E", "F"];
 
-const LANGUAGES = [
-  ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["de-DE", "Deutsch"], ["es-ES", "Español"],
-  ["fr-FR", "Français"], ["it-IT", "Italiano"], ["pt-BR", "Português"], ["nl-NL", "Nederlands"],
-  ["pl-PL", "Polski"], ["tr-TR", "Türkçe"], ["vi-VN", "Tiếng Việt"], ["hi-IN", "हिन्दी"],
-  ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["zh-CN", "中文"],
-];
+const HISTORY_KEY = "conversations";
+const HISTORY_LIMIT = 30; // oldest saved conversations are dropped beyond this
 
 const EXAMPLE = [
   "So I looked at the plan you sent over and I think the price is a bit high for us",
@@ -50,7 +46,11 @@ const els = {
   typeToggle: $("type-toggle"),
   form: $("type-form"),
   input: $("type-input"),
-  language: $("language"),
+  home: $("home"),
+  remove: $("remove"),
+  history: $("history"),
+  historyList: $("history-list"),
+  historyOpen: $("history-open"),
   summary: $("summary"),
   summaryBody: $("summary-body"),
   back: $("back"),
@@ -58,7 +58,6 @@ const els = {
   dictionary: $("dictionary"),
   dictionaryList: $("dictionary-list"),
   dictionaryOpen: $("dictionary-open"),
-  dictionaryClose: $("dictionary-close"),
   search: $("dictionary-search"),
 };
 
@@ -70,8 +69,10 @@ const state = {
   inFlight: false,
   timer: null,
   listening: false,
-  view: "live", // "live", "summary" or "dictionary"
-  returnTo: "live", // the view the dictionary was opened from
+  view: "live", // "live", "summary", "history" or "dictionary"
+  viewing: null, // a saved conversation open in the summary view, or null for the current one
+  conversationId: null, // set when the first words arrive
+  startedOn: null, // wall-clock time the conversation began
   startedAt: null, // when the conversation's clock started
   listenSince: null, // when the current listening stretch started
   shownFlags: new Set(), // flags already drawn once, so only new notes animate in
@@ -92,6 +93,8 @@ function elapsed() {
 function addSegment(text) {
   const clean = text.trim().replace(/\s+/g, " ");
   if (!clean) return;
+  state.conversationId ??= `c${Date.now()}`;
+  state.startedOn ??= Date.now();
   state.segments.push({ id: `s${state.nextId++}`, text: clean, at: elapsed(), checked: false });
   render();
   scheduleAnalysis();
@@ -166,6 +169,7 @@ async function runAnalysis(force) {
     showError(error instanceof TypeError ? "Can't reach the server." : error.message);
   } finally {
     state.inFlight = false;
+    saveCurrent();
     render();
     // After a failure, wait for new speech before trying again.
     if (!failed && state.segments.some((s) => !s.checked)) scheduleAnalysis(0);
@@ -225,9 +229,9 @@ function renderNote(flag, speaker) {
 
 // Lines arrive one pause at a time. Once checked, consecutive lines from the same
 // speaker are shown as one turn so the conversation reads cleanly.
-function groupTurns() {
+function groupTurns(segments = state.segments) {
   const turns = [];
-  for (const segment of state.segments) {
+  for (const segment of segments) {
     const last = turns.at(-1);
     const joins = last && last.checked && segment.checked && segment.speaker && last.speaker === segment.speaker;
     if (joins) last.segments.push(segment);
@@ -290,21 +294,23 @@ function plural(n, word) {
 }
 
 function renderSummary() {
-  const bySegment = new Map(state.segments.map((s) => [s.id, s]));
-  const speakers = [...new Set(state.segments.map((s) => s.speaker).filter(Boolean))].sort();
-  const entries = state.flags.map((flag) => {
+  const saved = state.viewing;
+  const { segments, flags } = saved ?? state;
+  const bySegment = new Map(segments.map((s) => [s.id, s]));
+  const speakers = [...new Set(segments.map((s) => s.speaker).filter(Boolean))].sort();
+  const entries = flags.map((flag) => {
     const segment = bySegment.get(flag.segment_id);
     return { flag, at: segment?.at ?? 0, speaker: segment?.speaker ?? "?" };
   });
   if (entries.some((e) => e.speaker === "?")) speakers.push("?");
   const label = (speaker) => (speaker === "?" ? "Unknown speaker" : `Speaker ${speaker}`);
-  const length = state.segments.at(-1)?.at ?? 0;
+  const length = segments.at(-1)?.at ?? 0;
 
   const nodes = [
-    el("p", "sum-meta", `Conversation · ${clock(length)}`),
+    el("p", "sum-meta", saved ? `${dateLabel(saved.startedOn)} · ${clock(length)}` : `Conversation · ${clock(length)}`),
     el("h2", "sum-title", entries.length ? plural(entries.length, "fallacy") : "No fallacies"),
   ];
-  if (state.segments.some((s) => !s.checked)) {
+  if (!saved && segments.some((s) => !s.checked)) {
     nodes.push(el("p", "sum-note", els.error.hidden ? "Still checking the last lines…" : "The last lines could not be checked."));
   }
 
@@ -334,7 +340,80 @@ function renderSummary() {
     }
     nodes.push(el("h3", "sum-speaker", label(speaker)), list);
   }
+
+  // The full conversation, for reading back.
+  if (segments.length) {
+    const script = el("div", "script");
+    for (const turn of groupTurns(segments.map((s) => ({ ...s, checked: true })))) {
+      const line = el("p", "line");
+      if (turn.speaker) line.append(el("span", "who", turn.speaker));
+      line.append(turn.segments.map((s) => s.text).join(" "));
+      script.append(line);
+    }
+    nodes.push(el("h3", "sum-speaker", "Transcript"), script);
+  }
   els.summaryBody.replaceChildren(...nodes);
+
+  els.back.textContent = saved ? "Back to history" : "Back to conversation";
+  els.fresh.hidden = Boolean(saved);
+  els.remove.hidden = !saved;
+  els.remove.textContent = "Delete";
+}
+
+// ---------- History: conversations saved on this device ----------
+
+function loadHistory() {
+  try {
+    const list = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return []; // storage unavailable or corrupted: carry on without history
+  }
+}
+
+function storeHistory(list) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_LIMIT)));
+  } catch {
+    // Private windows and full storage refuse writes; the conversation still works.
+  }
+}
+
+// Keep the conversation in progress saved, so closing the page doesn't lose it.
+function saveCurrent() {
+  if (!state.conversationId || !state.segments.length) return;
+  const record = {
+    id: state.conversationId,
+    startedOn: state.startedOn,
+    segments: state.segments.map(({ id, text, at, speaker }) => ({ id, text, at, speaker })),
+    flags: state.flags,
+  };
+  storeHistory([record, ...loadHistory().filter((c) => c.id !== record.id)]);
+}
+
+function dateLabel(time) {
+  return new Date(time).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function renderHistory() {
+  const list = loadHistory();
+  const items = list.map((conversation) => {
+    const item = el("li");
+    const open = el("button", "open");
+    open.type = "button";
+    open.dataset.id = conversation.id;
+    const length = conversation.segments.at(-1)?.at ?? 0;
+    const current = conversation.id === state.conversationId ? " · in progress" : "";
+    open.append(
+      el("p", "kind", `${dateLabel(conversation.startedOn)} · ${clock(length)}${current}`),
+      el("h3", "name", conversation.flags.length ? plural(conversation.flags.length, "fallacy") : "No fallacies"),
+      el("p", "snippet", conversation.segments.map((s) => s.text).join(" ")),
+    );
+    item.append(open);
+    return item;
+  });
+  if (!items.length) items.push(el("li", "sum-note", "No conversations yet. They are saved here as you talk."));
+  els.historyList.replaceChildren(...items);
 }
 
 // ---------- Rendering: dictionary ----------
@@ -361,11 +440,28 @@ function render() {
   document.body.dataset.view = state.view;
   els.live.hidden = state.view !== "live";
   els.summary.hidden = state.view !== "summary";
+  els.history.hidden = state.view !== "history";
   els.dictionary.hidden = state.view !== "dictionary";
-  els.dictionaryOpen.hidden = state.view === "dictionary";
+  for (const [button, view] of [[els.historyOpen, "history"], [els.dictionaryOpen, "dictionary"]]) {
+    if (state.view === view) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
   els.end.disabled = state.segments.length === 0 && !state.interim;
   if (state.view === "summary") renderSummary();
   else if (state.view === "live") renderLive();
+}
+
+function show(view, viewing = null) {
+  state.view = view;
+  state.viewing = viewing;
+  if (view === "history") renderHistory();
+  if (view === "dictionary") {
+    els.search.value = "";
+    renderDictionary();
+  }
+  render();
+  // The live view opens at the newest words; everything else at the top.
+  window.scrollTo({ top: view === "live" ? document.documentElement.scrollHeight : 0 });
 }
 
 // ---------- Controls ----------
@@ -387,6 +483,7 @@ els.transcript.addEventListener("click", (event) => {
     segment.speaker = next;
     segment.confirmed = true;
   }
+  saveCurrent();
   render();
 });
 
@@ -409,52 +506,59 @@ els.example.addEventListener("click", () => {
   runNow();
 });
 
-els.dictionaryOpen.addEventListener("click", () => {
-  state.returnTo = state.view;
-  state.view = "dictionary";
-  els.search.value = "";
-  renderDictionary();
-  render();
-  window.scrollTo({ top: 0 });
-});
-
-els.dictionaryClose.addEventListener("click", () => {
-  state.view = state.returnTo;
-  render();
-  if (state.view === "live") window.scrollTo({ top: document.documentElement.scrollHeight });
-});
-
+els.home.addEventListener("click", () => show("live"));
+els.historyOpen.addEventListener("click", () => show("history"));
+els.dictionaryOpen.addEventListener("click", () => show("dictionary"));
 els.search.addEventListener("input", renderDictionary);
 
+els.historyList.addEventListener("click", (event) => {
+  const open = event.target.closest(".open");
+  const conversation = open && loadHistory().find((c) => c.id === open.dataset.id);
+  if (conversation) show("summary", conversation);
+});
+
 els.end.addEventListener("click", () => {
-  state.view = "summary";
   if (state.listening) {
     setListening(false);
     recognition.stop(); // onend takes the last words and checks them
   } else {
     runNow();
   }
-  render();
-  window.scrollTo({ top: 0 });
+  saveCurrent();
+  show("summary");
 });
 
-els.back.addEventListener("click", () => {
-  state.view = "live";
-  render();
-  window.scrollTo({ top: document.documentElement.scrollHeight });
+els.back.addEventListener("click", () => show(state.viewing ? "history" : "live"));
+
+// Deleting takes two taps, since it can't be undone.
+els.remove.addEventListener("click", () => {
+  if (els.remove.textContent === "Delete") {
+    els.remove.textContent = "Tap again to delete";
+    return;
+  }
+  const id = state.viewing?.id;
+  storeHistory(loadHistory().filter((c) => c.id !== id));
+  if (id === state.conversationId) resetConversation();
+  show("history");
 });
 
-els.fresh.addEventListener("click", () => {
+function resetConversation() {
   clearTimeout(state.timer);
   for (let i = 0; i < heard.length; i++) taken[i] = heard[i].length; // don't bring old words back
   state.segments = [];
   state.flags = [];
   state.interim = "";
   state.startedAt = null;
-  state.view = "live";
+  state.conversationId = null;
+  state.startedOn = null;
   state.shownFlags.clear();
   showError(null);
-  render();
+}
+
+els.fresh.addEventListener("click", () => {
+  saveCurrent();
+  resetConversation();
+  show("live");
 });
 
 // ---------- Live speech ----------
@@ -515,40 +619,15 @@ function setListening(on, statusText) {
   }
 }
 
-// The recogniser must be told which language to expect; the wrong one garbles everything.
-function storedLanguage() {
-  try {
-    return localStorage.getItem("language");
-  } catch {
-    return null;
-  }
-}
-const browserLanguage = LANGUAGES.find(([code]) => code === navigator.language)?.[0];
-for (const [code, name] of LANGUAGES) els.language.append(new Option(name, code));
-els.language.value = LANGUAGES.some(([code]) => code === storedLanguage())
-  ? storedLanguage()
-  : (browserLanguage ?? "en-US");
-
 if (!SpeechRecognition) {
   els.mic.disabled = true;
-  els.language.disabled = true;
   els.form.hidden = false;
   els.status.textContent = "Listening needs Chrome, Edge or Safari";
 } else {
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = true;
-  recognition.lang = els.language.value;
-
-  els.language.addEventListener("change", () => {
-    recognition.lang = els.language.value;
-    try {
-      localStorage.setItem("language", els.language.value);
-    } catch {
-      // Storage can be unavailable; the choice still applies to this visit.
-    }
-    if (state.listening) recognition.stop(); // onend restarts it in the new language
-  });
+  recognition.lang = "en-US";
 
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
