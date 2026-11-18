@@ -13,6 +13,8 @@ const Segment = z.object({
   speaker: z.enum(SPEAKERS).optional(),
   // True when the listener set the speaker by hand.
   confirmed: z.boolean().optional(),
+  // Names of the flags already raised on this segment.
+  flagged: z.array(z.string().max(120)).max(10).optional(),
 });
 
 export const AnalyzeInput = z.object({
@@ -68,6 +70,10 @@ Most everyday speech contains none of these. The listener will stop trusting the
 
 Use the speaker labels to follow the argument: a straw man is one person misstating what another said, and a person questioning their own earlier point is not a fallacy.
 
+Speech is cut into segments at arbitrary points, often mid-sentence, so read the new segments together with the earlier ones as one running conversation. When a statement clearly fits a named pattern, flag it even if the wording is rough or a word was mis-heard.
+
+An earlier segment may end with {already flagged: ...}. When a new segment only continues or completes that same statement, do not raise the same problem again; flag it again only for a separate instance.
+
 Only flag NEW segments. Earlier segments are given so you can follow the argument, and they have already been checked. If a problem only becomes clear across several segments, attach it to the new segment where it completes.
 
 For each flag:
@@ -86,7 +92,8 @@ function formatSegments(segments, withSpeakers) {
   return segments
     .map((s) => {
       const who = withSpeakers && s.speaker ? ` ${s.speaker}${s.confirmed ? " (confirmed)" : ""}:` : "";
-      return `[${s.id}]${who} ${s.text}`;
+      const flagged = withSpeakers && s.flagged?.length ? ` {already flagged: ${s.flagged.join("; ")}}` : "";
+      return `[${s.id}]${who} ${s.text}${flagged}`;
     })
     .join("\n");
 }

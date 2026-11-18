@@ -3,6 +3,13 @@ const DEBOUNCE_MS = 900; // wait for a pause before checking, so nearby phrases 
 const MIN_WORDS = 4; // don't spend a request on a fragment; it rides along with the next phrase
 const MAX_BATCH = 20;
 
+// Browsers differ in when they call a phrase finished. Some wait for a long pause and some
+// (Safari, iPhone) never do until listening stops, so the page decides for itself:
+const STABLE_MS = 1500; // words unchanged for this long become a transcript line
+const FINISHED_MS = 300; // shorter wait when the browser says the phrase is finished
+const MAX_PENDING_WORDS = 28; // nonstop speech is cut into lines of about this length
+const VOLATILE_WORDS = 4; // the newest words can still be revised, so a cut leaves them out
+
 const KIND_LABELS = {
   fallacy: "Fallacy",
   pressure_tactic: "Pressure",
@@ -97,7 +104,14 @@ async function runAnalysis(force) {
     return;
   }
   const context = state.segments.slice(Math.max(0, firstPending - CONTEXT_SEGMENTS), firstPending);
-  const toWire = (s) => ({ id: s.id, text: s.text, speaker: s.speaker, confirmed: s.confirmed });
+  const toWire = (s) => ({
+    id: s.id,
+    text: s.text,
+    speaker: s.speaker,
+    confirmed: s.confirmed,
+    // Lets the model see what it already raised, so a continued sentence isn't flagged twice.
+    flagged: state.flags.filter((f) => f.segment_id === s.id).map((f) => f.name),
+  });
 
   state.inFlight = true;
   render(); // show "checking…" beside the lines being sent
@@ -279,6 +293,7 @@ els.clear.addEventListener("click", () => {
   clearTimeout(state.timer);
   state.segments = [];
   state.flags = [];
+  for (let i = 0; i < heard.length; i++) taken[i] = heard[i].length; // don't bring cleared words back
   state.interim = "";
   state.startedAt = state.listening ? Date.now() : null;
   state.shownFlags.clear();
@@ -292,6 +307,42 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 
 let ticker = null;
+
+// Words from the current recognition session. heard[i] is the latest wording of the i-th
+// phrase; taken[i] counts how many of its words are already in the transcript.
+let heard = [];
+let finished = [];
+let taken = [];
+let stableTimer = null;
+
+function newSession() {
+  clearTimeout(stableTimer);
+  heard = [];
+  finished = [];
+  taken = [];
+}
+
+function pendingWords() {
+  return heard.flatMap((words, i) => words.slice(taken[i] ?? 0));
+}
+
+// Move pending words from phrases 0..through into the transcript as one line,
+// leaving the last `keep` words of that last phrase for later.
+function takeWords(through, keep) {
+  const line = [];
+  for (let i = 0; i <= through && i < heard.length; i++) {
+    const from = taken[i] ?? 0;
+    const upto = i === through ? Math.max(from, heard[i].length - keep) : heard[i].length;
+    line.push(...heard[i].slice(from, upto));
+    taken[i] = upto;
+  }
+  if (line.length) addSegment(line.join(" "));
+}
+
+function showPending() {
+  state.interim = pendingWords().join(" ");
+  render();
+}
 
 function setListening(on, statusText) {
   state.listening = on;
@@ -345,14 +396,31 @@ if (!SpeechRecognition) {
   });
 
   recognition.onresult = (event) => {
-    let interim = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      if (result.isFinal) addSegment(result[0].transcript);
-      else interim += result[0].transcript;
+      const words = event.results[i][0].transcript.trim().split(/\s+/).filter(Boolean);
+      const done = taken[i] ?? 0;
+      // The recogniser may revise a phrase. A small shrink is a correction; a big one is new speech.
+      if (words.length < done - 2) taken[i] = 0;
+      else if (words.length < done) taken[i] = words.length;
+      heard[i] = words;
+      finished[i] = event.results[i].isFinal;
     }
-    state.interim = interim;
-    render();
+    heard.length = finished.length = event.results.length;
+    const last = heard.length - 1;
+
+    // A finished phrase with another one after it can no longer change.
+    const settled = last > 0 ? finished.lastIndexOf(true, last - 1) : -1;
+    if (settled >= 0) takeWords(settled, 0);
+    if (pendingWords().length >= MAX_PENDING_WORDS) takeWords(last, VOLATILE_WORDS);
+    showPending();
+
+    // The newest phrase is taken once it stops changing. Android marks every update as
+    // finished and then keeps extending it, so even a finished phrase gets a short wait.
+    clearTimeout(stableTimer);
+    stableTimer = setTimeout(() => {
+      takeWords(heard.length - 1, 0);
+      showPending();
+    }, finished[last] ? FINISHED_MS : STABLE_MS);
   };
 
   recognition.onerror = (event) => {
@@ -369,11 +437,9 @@ if (!SpeechRecognition) {
   // Browsers end a recognition session after a stretch of silence. Keep going until the user stops.
   recognition.onend = () => {
     // A session can end before it confirms the words it was still working on. Keep them.
-    if (state.interim) {
-      const unconfirmed = state.interim;
-      state.interim = "";
-      addSegment(unconfirmed);
-    }
+    takeWords(heard.length - 1, 0);
+    newSession();
+    showPending();
     if (!state.listening) {
       runNow(); // check whatever is still waiting
       return;
@@ -391,6 +457,7 @@ if (!SpeechRecognition) {
       recognition.stop();
     } else {
       try {
+        newSession();
         recognition.start();
         setListening(true);
       } catch {
