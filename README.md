@@ -10,6 +10,8 @@ Each flag shows the phrase, the formal name of the problem, and one sentence on 
 
 Lines from the same speaker are joined into one turn. Press **End** to see every flag grouped by who said it.
 
+The model also repairs words the speech recogniser mis-heard, using the surrounding conversation. A built-in dictionary lists every fallacy with a one-line meaning.
+
 It does not fact-check: it judges how something is argued, not whether it is true.
 
 ## Run it

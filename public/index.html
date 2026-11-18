@@ -19,9 +19,12 @@
 
   <header class="top">
     <h1>Fallacy Detector</h1>
-    <label class="lang"><span class="sr">Spoken language</span>
-      <select id="language"></select>
-    </label>
+    <div class="top-right">
+      <button id="dictionary-open" class="plain" type="button">Dictionary</button>
+      <label class="lang"><span class="sr">Spoken language</span>
+        <select id="language"></select>
+      </label>
+    </div>
   </header>
 
   <!-- Live view: the conversation as it happens -->
@@ -43,6 +46,15 @@
       <button id="back" class="plain" type="button">Back to conversation</button>
       <button id="fresh" class="plain" type="button">New conversation</button>
     </div>
+  </main>
+
+  <!-- Dictionary view: every fallacy the detector names, with a one-line meaning -->
+  <main id="dictionary" class="page" hidden>
+    <button id="dictionary-close" class="plain" type="button">Back</button>
+    <h2 class="sum-title">Dictionary</h2>
+    <label class="sr" for="dictionary-search">Search the dictionary</label>
+    <input id="dictionary-search" class="search" type="search" autocomplete="off" placeholder="Search">
+    <div id="dictionary-list"></div>
   </main>
 
   <footer id="dock" class="dock">

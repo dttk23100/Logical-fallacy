@@ -33,13 +33,21 @@ const Flag = z.object({
   confidence: z.enum(["high", "medium"]),
 });
 
-const SpeakerGuess = z.object({ segment_id: z.string(), speaker: z.enum(SPEAKERS) });
+// One entry per new segment: who said it, and its text with mis-heard words repaired.
+const Line = z.object({ segment_id: z.string(), speaker: z.enum(SPEAKERS), text: z.string() });
 
-const AnalyzeOutput = z.object({ speakers: z.array(SpeakerGuess), flags: z.array(Flag) });
+const AnalyzeOutput = z.object({ lines: z.array(Line), flags: z.array(Flag) });
 
 const SYSTEM_PROMPT = `You monitor a live spoken conversation for a listener who wants to avoid being misled or pressured. The text you receive is an automatic speech transcript: it has little punctuation, may contain mis-heard words, and does not record who is speaking. It arrives in small segments as people talk; a new segment starts at each pause.
 
-You have two jobs: work out who is speaking in each NEW segment, and flag broken reasoning in the NEW segments.
+You have three jobs for the NEW segments: repair mis-heard words, work out who is speaking, and flag broken reasoning.
+
+## Repairing the words
+
+Speech recognition mis-hears words. For every new segment, return its text as it was most likely said:
+- Replace a word only when it is clearly a mis-hearing and the conversation shows what was meant: "there argument is week" becomes "their argument is weak", "add hominem" becomes "ad hominem". When unsure, keep the original word.
+- Add punctuation and capital letters.
+- Do not add, remove, reorder or rephrase anything else. Keep filler, slang and informal wording, and do not complete a sentence that was cut off; the rest may arrive in the next segment.
 
 ## Who is speaking
 
@@ -51,7 +59,7 @@ You only have the words, so read them the way you would read a play script with 
 - One person often carries on across several segments, because a segment ends at any pause. With no sign of a change, keep the previous speaker.
 - A letter marked "confirmed" was set by the listener. Treat it as fact and use it to anchor the others.
 
-Give every new segment exactly one entry in speakers. If one segment seems to contain two people, label it with whoever says most of it.
+Give every new segment exactly one entry in lines, with its speaker and its repaired text. If one segment seems to contain two people, label it with whoever says most of it.
 
 ## What to flag
 
@@ -75,7 +83,7 @@ Only flag NEW segments. Earlier segments are given so you can follow the argumen
 
 For each flag:
 - segment_id: the id of the new segment it belongs to.
-- quote: the shortest span, copied character for character from that segment, that contains the problem.
+- quote: the shortest span, copied character for character from your repaired text of that segment, that contains the problem.
 - name: the formal, textbook name of the problem, the term someone could look up. Use the Latin name where that is the standard one, and add the plain name in brackets when the formal one is obscure. Examples: "Ad hominem", "Straw man", "False dilemma", "Tu quoque (whataboutism)", "Argumentum ad populum (bandwagon)", "Post hoc ergo propter hoc", "Slippery slope", "Begging the question", "Appeal to authority", "No true Scotsman", "Moving the goalposts", "Hasty generalization", "False urgency", "Guilt trip", "Cherry-picking", "Unsourced statistic", "Correlation-causation fallacy". When a statement fits a named logical fallacy, classify it as a fallacy under that name, even if it is also being used to apply pressure.
 - explanation: one short sentence, at most about 15 words, saying why this is that fallacy. State the flaw directly; do not restate what was said or hedge.
 - confidence: "high" when the problem is clear from the words alone, "medium" when it is borderline or depends on context you cannot see.
@@ -115,14 +123,14 @@ export async function analyze({ context, segments }) {
   });
 
   if (response.stop_reason === "refusal" || !response.parsed_output) {
-    return { speakers: [], flags: [], skipped: response.stop_reason };
+    return { lines: [], flags: [], skipped: response.stop_reason };
   }
 
   // Drop anything that points at segments we did not ask about.
   const ids = new Set(segments.map((s) => s.id));
-  const { speakers, flags } = response.parsed_output;
+  const { lines, flags } = response.parsed_output;
   return {
-    speakers: speakers.filter((g) => ids.has(g.segment_id)),
+    lines: lines.filter((l) => ids.has(l.segment_id)),
     flags: flags.filter((f) => ids.has(f.segment_id)),
   };
 }

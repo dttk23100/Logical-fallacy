@@ -73,6 +73,8 @@ button:disabled { opacity: 0.35; cursor: default; }
   font-size: 0.75rem;
 }
 h1 { margin: 0; font: inherit; }
+.top-right { display: flex; align-items: baseline; gap: 1rem; }
+.top .plain { padding: 0; font-size: 0.75rem; color: var(--faint); }
 .lang select {
   max-width: 9rem;
   padding: 0.2rem 0;
@@ -130,11 +132,20 @@ h1 { margin: 0; font: inherit; }
 mark {
   background: none;
   color: var(--ink);
-  text-decoration: underline 1px var(--ink);
+  font-weight: 500;
+  text-decoration: underline 1.5px var(--ink);
   text-underline-offset: 4px;
 }
 
-.note { margin-top: 0.7rem; }
+/* A flag is boxed so it stands apart from the running conversation.
+   A dashed box means the call is borderline. */
+.note {
+  margin-top: 0.75rem;
+  padding: 0.8rem 1rem 0.95rem;
+  border: 1px solid var(--soft);
+  border-radius: 3px;
+}
+.note.borderline { border-style: dashed; border-color: var(--faint); }
 .note.new { animation: arrive 0.4s ease-out; }
 @keyframes arrive { from { opacity: 0; transform: translateY(0.35rem); } }
 
@@ -227,8 +238,24 @@ mark {
 
 /* ---------- Summary ---------- */
 
-body[data-view="summary"] .dock { display: none; }
-#summary { padding-bottom: 3rem; }
+body[data-view="summary"] .dock,
+body[data-view="dictionary"] .dock { display: none; }
+#summary, #dictionary { padding-bottom: 3rem; }
+
+#dictionary .sum-title { margin-top: 1rem; }
+.search {
+  width: 100%;
+  padding: 0.6rem 0;
+  background: var(--bg);
+  border: 0;
+  border-bottom: 1px solid var(--faint);
+  border-radius: 0;
+  font-size: 1rem;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search::placeholder { color: var(--faint); }
+.search:focus-visible { outline: 0; border-bottom-color: var(--ink); }
 
 .sum-meta { margin: 0; font-size: 0.6875rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
 .sum-title { margin: 0.3rem 0 1.5rem; font: 500 2.5rem/1.05 var(--serif); }

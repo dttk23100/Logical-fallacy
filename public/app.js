@@ -35,6 +35,8 @@ const EXAMPLE = [
   "Can you send me the contract so I can read it over the weekend",
 ];
 
+import { DICTIONARY } from "./dictionary.js";
+
 const $ = (id) => document.getElementById(id);
 const els = {
   mic: $("mic"),
@@ -53,6 +55,11 @@ const els = {
   summaryBody: $("summary-body"),
   back: $("back"),
   fresh: $("fresh"),
+  dictionary: $("dictionary"),
+  dictionaryList: $("dictionary-list"),
+  dictionaryOpen: $("dictionary-open"),
+  dictionaryClose: $("dictionary-close"),
+  search: $("dictionary-search"),
 };
 
 const state = {
@@ -63,7 +70,8 @@ const state = {
   inFlight: false,
   timer: null,
   listening: false,
-  ended: false, // true while the summary is showing
+  view: "live", // "live", "summary" or "dictionary"
+  returnTo: "live", // the view the dictionary was opened from
   startedAt: null, // when the conversation's clock started
   listenSince: null, // when the current listening stretch started
   shownFlags: new Set(), // flags already drawn once, so only new notes animate in
@@ -136,13 +144,17 @@ async function runAnalysis(force) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `Analysis failed (${res.status}).`);
 
-    const guesses = new Map((body.speakers ?? []).map((g) => [g.segment_id, g.speaker]));
+    const lines = new Map((body.lines ?? []).map((line) => [line.segment_id, line]));
     for (const segment of batch) {
       segment.checked = true;
+      const line = lines.get(segment.id);
+      if (!line) continue;
       // A label the listener set while the request was running wins over the guess.
-      if (!segment.confirmed && SPEAKERS.includes(guesses.get(segment.id))) {
-        segment.speaker = guesses.get(segment.id);
-      }
+      if (!segment.confirmed && SPEAKERS.includes(line.speaker)) segment.speaker = line.speaker;
+      // Take the repaired wording, unless it strays far from what was heard.
+      const repaired = String(line.text ?? "").trim();
+      const ratio = repaired.length / segment.text.length;
+      if (repaired && ratio > 0.6 && ratio < 1.6) segment.text = repaired;
     }
     for (const flag of body.flags ?? []) {
       state.flags.push({ ...flag, id: `f${state.flags.length + 1}` });
@@ -202,7 +214,7 @@ function kindLine(flag, speaker) {
 }
 
 function renderNote(flag, speaker) {
-  const note = el("div", "note");
+  const note = el("div", flag.confidence === "medium" ? "note borderline" : "note");
   if (!state.shownFlags.has(flag.id)) {
     note.classList.add("new");
     state.shownFlags.add(flag.id);
@@ -325,13 +337,35 @@ function renderSummary() {
   els.summaryBody.replaceChildren(...nodes);
 }
 
+// ---------- Rendering: dictionary ----------
+
+function renderDictionary() {
+  const query = els.search.value.trim().toLowerCase();
+  const nodes = [];
+  for (const { group, entries } of DICTIONARY) {
+    const matches = entries.filter(([name, text]) => `${name} ${text}`.toLowerCase().includes(query));
+    if (!matches.length) continue;
+    const list = el("ul", "entries");
+    for (const [name, text] of matches) {
+      const item = el("li");
+      item.append(el("h3", "name", name), el("p", "why", text));
+      list.append(item);
+    }
+    nodes.push(el("h3", "sum-speaker", group), list);
+  }
+  if (!nodes.length) nodes.push(el("p", "sum-note", "Nothing matches that search."));
+  els.dictionaryList.replaceChildren(...nodes);
+}
+
 function render() {
-  document.body.dataset.view = state.ended ? "summary" : "live";
-  els.live.hidden = state.ended;
-  els.summary.hidden = !state.ended;
+  document.body.dataset.view = state.view;
+  els.live.hidden = state.view !== "live";
+  els.summary.hidden = state.view !== "summary";
+  els.dictionary.hidden = state.view !== "dictionary";
+  els.dictionaryOpen.hidden = state.view === "dictionary";
   els.end.disabled = state.segments.length === 0 && !state.interim;
-  if (state.ended) renderSummary();
-  else renderLive();
+  if (state.view === "summary") renderSummary();
+  else if (state.view === "live") renderLive();
 }
 
 // ---------- Controls ----------
@@ -375,8 +409,25 @@ els.example.addEventListener("click", () => {
   runNow();
 });
 
+els.dictionaryOpen.addEventListener("click", () => {
+  state.returnTo = state.view;
+  state.view = "dictionary";
+  els.search.value = "";
+  renderDictionary();
+  render();
+  window.scrollTo({ top: 0 });
+});
+
+els.dictionaryClose.addEventListener("click", () => {
+  state.view = state.returnTo;
+  render();
+  if (state.view === "live") window.scrollTo({ top: document.documentElement.scrollHeight });
+});
+
+els.search.addEventListener("input", renderDictionary);
+
 els.end.addEventListener("click", () => {
-  state.ended = true;
+  state.view = "summary";
   if (state.listening) {
     setListening(false);
     recognition.stop(); // onend takes the last words and checks them
@@ -388,7 +439,7 @@ els.end.addEventListener("click", () => {
 });
 
 els.back.addEventListener("click", () => {
-  state.ended = false;
+  state.view = "live";
   render();
   window.scrollTo({ top: document.documentElement.scrollHeight });
 });
@@ -400,7 +451,7 @@ els.fresh.addEventListener("click", () => {
   state.flags = [];
   state.interim = "";
   state.startedAt = null;
-  state.ended = false;
+  state.view = "live";
   state.shownFlags.clear();
   showError(null);
   render();
